@@ -34,4 +34,8 @@ private:
     void calculatePositions(std::vector<TelemetryFrame>& frames);
 
     float getTotalDistance(uint32_t driver_id) const;
+
+    // DRS: updated each tick from previous-tick distances; applied inside generateFrame
+    std::vector<bool> drs_open_;
+    void updateDRS();
 };

@@ -41,6 +41,7 @@ struct TelemetryFrame {
     float tire_temp_c[4];      // FL, FR, RL, RR
     float tire_wear;           // 0.0 (new) – 1.0 (dead)
     float fuel_load_kg;        // remaining fuel in kg
+    bool  drs_active;          // DRS open this frame
 };
 
 struct TrackProfile {

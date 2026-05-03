@@ -264,6 +264,10 @@ int main(){
                     else if (f.fuel_load_kg < 50.0f) fuelColor = "\033[33m";
                     cout << "  Fuel: " << fuelColor << int(f.fuel_load_kg) << "kg\033[0m";
 
+                    if (f.drs_active) {
+                        cout << "  \033[1;32mDRS\033[0m";
+                    }
+
                     cout << "\n";
                 }
                 

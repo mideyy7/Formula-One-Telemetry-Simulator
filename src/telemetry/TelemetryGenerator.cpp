@@ -12,6 +12,7 @@ TelemetryGenerator::TelemetryGenerator(
     std::shared_ptr<PenaltyEnforcer> penalty_enforcer
 ) : track_(track), drivers_(drivers), cars_(cars), total_laps_(total_laps), current_time_ns_(0), penalty_enforcer_(penalty_enforcer) {
     states_.resize(drivers.size());
+    drs_open_.resize(drivers.size(), false);
 
     for (auto &s : states_){
         s.lap = 0;
@@ -29,6 +30,9 @@ TelemetryGenerator::TelemetryGenerator(
 vector<TelemetryFrame> TelemetryGenerator::next() {
     constexpr uint64_t tick_ns = 20'000'000ULL; // 20ms in nanoseconds
     current_time_ns_ += tick_ns;
+
+    // Compute DRS eligibility from last tick's distances before generating new frames
+    updateDRS();
 
     vector<TelemetryFrame> frames;
     frames.reserve(drivers_.size());
@@ -113,6 +117,8 @@ TelemetryFrame TelemetryGenerator::generateFrame(uint32_t i) {
         // Fuel weight reduces top speed: 100 kg full load costs ~5 kph, decreasing as fuel burns
         float fuel_penalty = state.fuel_load_kg * 0.05f;
         speed = 220.0f * car.engine_power * driver_skill * (1.0f - state.tire_wear * 0.4f) - fuel_penalty;
+        // DRS boost: ~12 kph when open in sector 1 and within 1 s of car ahead
+        if (drs_open_[i]) speed += 12.0f;
         if (speed < 0.0f) speed = 0.0f;
     }
 
@@ -156,6 +162,7 @@ TelemetryFrame TelemetryGenerator::generateFrame(uint32_t i) {
     frame.brake = 0.0f;
     frame.tire_wear = state.tire_wear;
     frame.fuel_load_kg = state.fuel_load_kg;
+    frame.drs_active = drs_open_[i] && !state.is_on_pit;
     float base_temp = state.is_on_pit ? 60.0f : clamp(80.0f + speed * 0.05f, 60.0f, 120.0f);
     for(int t = 0; t < 4; t++) {
         frame.tire_temp_c[t] = base_temp;
@@ -181,4 +188,28 @@ bool TelemetryGenerator::isRaceFinished() const {
 
 void TelemetryGenerator::setOptimalStrategies(const std::map<uint32_t, uint32_t>& strategies) {
     optimal_strategies_ = strategies;
+}
+
+void TelemetryGenerator::updateDRS() {
+    // Sort drivers by total distance covered (leader first)
+    vector<pair<float, uint32_t>> by_dist;
+    by_dist.reserve(drivers_.size());
+    for (uint32_t i = 0; i < drivers_.size(); i++) {
+        by_dist.push_back({getTotalDistance(i), i});
+    }
+    sort(by_dist.begin(), by_dist.end(),
+         [](const pair<float,uint32_t>& a, const pair<float,uint32_t>& b){ return a.first > b.first; });
+
+    fill(drs_open_.begin(), drs_open_.end(), false);
+
+    // DRS window: 1 second at 200 kph ≈ 0.0556 km gap to the car directly ahead
+    constexpr float drs_window_km = 200.0f / 3600.0f;
+
+    for (size_t i = 1; i < by_dist.size(); i++) {
+        uint32_t behind = by_dist[i].second;
+        float gap_km = by_dist[i - 1].first - by_dist[i].first;
+        bool in_drs_zone = (states_[behind].sector == 1); // sector 1 is the DRS activation zone
+        drs_open_[behind] = (gap_km <= drs_window_km && gap_km > 0.0f
+                             && in_drs_zone && !states_[behind].is_on_pit);
+    }
 }
