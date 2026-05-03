@@ -40,6 +40,7 @@ struct TelemetryFrame {
     // Tires
     float tire_temp_c[4];      // FL, FR, RL, RR
     float tire_wear;           // 0.0 (new) – 1.0 (dead)
+    float fuel_load_kg;        // remaining fuel in kg
 };
 
 struct TrackProfile {
@@ -64,4 +65,5 @@ struct DriverState {
     bool has_pitted;  // Prevent re-triggering a planned/optimal pit stop
     uint64_t pit_stop_start_time_ns;
     uint64_t pit_stop_end_time_ns;
+    float fuel_load_kg;        // remaining fuel in kg
 };

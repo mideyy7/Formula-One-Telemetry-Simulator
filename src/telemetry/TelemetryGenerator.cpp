@@ -22,6 +22,7 @@ TelemetryGenerator::TelemetryGenerator(
         s.has_pitted = false;
         s.pit_stop_start_time_ns = 0;
         s.pit_stop_end_time_ns = 0;
+        s.fuel_load_kg = 100.0f;
     }
 }
 
@@ -101,12 +102,18 @@ TelemetryFrame TelemetryGenerator::generateFrame(uint32_t i) {
         (!penalty_enforcer_ || penalty_enforcer_->isPenaltyComplete(i, current_time_ns_))) {
         state.is_on_pit = false;
         state.tire_wear = 0.0f;
+        // Refuel for the remaining race distance
+        float remaining_laps = static_cast<float>(total_laps_) - static_cast<float>(state.lap);
+        state.fuel_load_kg = std::max(5.0f, remaining_laps * 2.0f);
     }
 
     float speed = 0.0f;
     if (!state.is_on_pit) {
         float driver_skill = 0.80f + driver.consistency * 0.25f;
-        speed = 220.0f * car.engine_power * driver_skill * (1.0f - state.tire_wear * 0.4f);
+        // Fuel weight reduces top speed: 100 kg full load costs ~5 kph, decreasing as fuel burns
+        float fuel_penalty = state.fuel_load_kg * 0.05f;
+        speed = 220.0f * car.engine_power * driver_skill * (1.0f - state.tire_wear * 0.4f) - fuel_penalty;
+        if (speed < 0.0f) speed = 0.0f;
     }
 
     if (!state.is_on_pit) {
@@ -119,6 +126,10 @@ TelemetryFrame TelemetryGenerator::generateFrame(uint32_t i) {
         const float wear_per_lap = 0.05f * driver.aggression * track_.tire_wear_factor; // 0..~0.05 per lap
         state.tire_wear += (delta_distance_km / track_.lap_length_km) * wear_per_lap;
         if (state.tire_wear > 1.0f) state.tire_wear = 1.0f;
+
+        // F1 cars consume ~2 kg/lap; model as 0.2 kg per km of race distance
+        state.fuel_load_kg -= delta_distance_km * 0.2f;
+        if (state.fuel_load_kg < 0.0f) state.fuel_load_kg = 0.0f;
 
         state.distance_in_lap += delta_distance_km;
 
@@ -144,6 +155,7 @@ TelemetryFrame TelemetryGenerator::generateFrame(uint32_t i) {
     frame.throttle = 1.0f;
     frame.brake = 0.0f;
     frame.tire_wear = state.tire_wear;
+    frame.fuel_load_kg = state.fuel_load_kg;
     float base_temp = state.is_on_pit ? 60.0f : clamp(80.0f + speed * 0.05f, 60.0f, 120.0f);
     for(int t = 0; t < 4; t++) {
         frame.tire_temp_c[t] = base_temp;

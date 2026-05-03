@@ -258,7 +258,12 @@ int main(){
                     else if(tirePercent > 40) tireColor = "\033[33m";
                     
                     cout << "  Tire: " << tireColor << int(tirePercent) << "%\033[0m";
-                    
+
+                    string fuelColor = "\033[32m";
+                    if (f.fuel_load_kg < 20.0f) fuelColor = "\033[31m";
+                    else if (f.fuel_load_kg < 50.0f) fuelColor = "\033[33m";
+                    cout << "  Fuel: " << fuelColor << int(f.fuel_load_kg) << "kg\033[0m";
+
                     cout << "\n";
                 }
                 
