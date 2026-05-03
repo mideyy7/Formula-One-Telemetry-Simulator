@@ -99,8 +99,3 @@ f1-telemetry/
 └── README.md
 ```
 
-
-## License
-
-MIT
-
