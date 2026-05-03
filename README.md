@@ -1,62 +1,34 @@
 # F1 Telemetry Simulator
 
-A high-performance, multi-threaded Formula 1 telemetry data generator and processing system written in C++. This project simulates realistic F1 race telemetry with driver behavior, car characteristics, and track dynamics.
+A multi-threaded Formula 1 race simulator written in C++17. Generates realistic telemetry at 50Hz and renders a live, color-coded leaderboard in your terminal.
 
-## Features
+Built to explore C++ concurrency patterns — specifically producer-consumer pipelines with condition variables, parallel futures, and thread-safe state machines in a domain that makes the data interesting.
 
-- **Real-time Telemetry Generation**: Simulates F1 race data at 50Hz (20ms intervals)
-- **Beautiful Terminal Display**: Color-coded live leaderboard with emojis, progress bars, and real-time stats
-- **Multi-threaded Architecture**: Producer-consumer pattern with condition variables for efficient blocking
-- **2025 F1 Grid**: Full 20-driver lineup across 10 teams with realistic driver characteristics
-- **Realistic Driver Profiles**: Models driver behavior including aggression, consistency, tire management, and risk tolerance
-- **Car Performance Simulation**: Simulates engine power, aerodynamic efficiency, cooling, and reliability
-- **Dynamic Race Positions**: Real-time position calculation based on total distance traveled
-- **Tire Wear Modeling**: Progressive tire degradation based on driver aggression and track characteristics
-- **Advanced Pit Stop Strategy**: Variable pit stop thresholds based on driver tire management and risk tolerance
-- **Optimal Strategy Analysis (Optional)**: Find a best pit lap for selected drivers and apply it to the live race
-  - Uses parallel simulation via `std::async` + `std::future` to evaluate multiple candidate pit laps
-- **Track Limits Monitoring**: Realistic track limits violation detection with warnings and penalties
-  - Checks for violations at sector boundaries (not every frame) for realistic frequency
-  - Violation probability based on driver aggression, speed, and tire wear
-  - 3 warnings trigger a penalty flag and issue a time penalty
-- **Penalty Enforcer**: Tracks issued penalties and enforces them during pit stops using simulation time
-- **Driver Skill Factor**: Consistency affects how much performance drivers can extract from their cars
-- **Track Configuration**: Configurable track profiles with sectors, lap length, and environmental factors
-- **Fuel Load Model**: Cars start with 100 kg of fuel, consuming 0.2 kg/km. Fuel weight penalises top speed (~5 kph at full load), tapering as the race progresses. Drivers are refuelled at pit stops for the remaining race distance.
-- **DRS System**: Drag Reduction System activates in sector 1 when a driver is within the 1-second detection window of the car directly ahead, providing a ~12 kph speed boost. Recalculated every tick from current distance deltas.
-- **Gap-to-Leader**: Every `TelemetryFrame` carries a real-time time gap to the race leader, computed from the raw distance difference at a 200 kph reference speed. The leaderboard shows a gold `LEADER` badge for P1 and a `+X.Xs` gap for all other drivers.
-- **Fastest Lap Tracking**: Each driver's personal best lap time is recorded using simulation timestamps. The overall fastest-lap holder is highlighted with a purple `⚡FL` badge in the leaderboard and a persistent footer line shows their name and formatted lap time.
+## What it simulates
+
+- **Full 2025 F1 grid** — 20 drivers across 10 teams, each with individual aggression, consistency, tire management, and risk tolerance profiles
+- **Tire wear** — progressive degradation; pit stop threshold varies per driver (65–90% wear)
+- **Fuel load** — cars start at 100 kg, burn 0.2 kg/km; full load costs ~5 kph top speed and refuelling happens at pit stops
+- **DRS** — activates in sector 1 when a driver is within 1 second of the car ahead; gives ~12 kph boost
+- **Gap to leader** — computed from raw distance delta at a 200 kph reference speed and shown live on the leaderboard
+- **Fastest lap** — personal bests tracked per driver; overall holder gets a purple `⚡FL` badge
+- **Track limits** — violations checked at sector boundaries; 3 warnings issue a timed penalty enforced during the next pit stop
+- **Pit stop strategy** — optional pre-race optimal pit lap search using parallel simulation (`std::async` / `std::future`)
 
 ## Architecture
 
-The system uses a producer-consumer architecture with a thread-safe ring buffer:
-
 ```
-┌─────────────────┐         ┌──────────────┐         ┌─────────────────┐
-│ Telemetry       │         │   Ring       │         │   Consumer      │
-│ Generator       │────────▶│   Buffer     │────────▶│   Thread        │
-│ (Producer)      │         │  (1024 cap)  │         │   (Display)     │
-└─────────────────┘         └──────────────┘         └─────────────────┘
+┌──────────────────┐       ┌──────────────────┐       ┌──────────────────┐
+│ TelemetryGen     │──────▶│   RingBuffer     │──────▶│ Consumer Thread  │
+│ (Producer, 50Hz) │       │ (1024, blocking) │       │ (Leaderboard)    │
+└──────────────────┘       └──────────────────┘       └──────────────────┘
 ```
 
-### Components
+The ring buffer uses `std::condition_variable` so threads sleep when waiting — no busy-spinning. `TrackLimitsMonitor` and `PenaltyEnforcer` run concurrently with mutex-protected state.
 
-- **TelemetryGenerator**: Generates telemetry frames for all 20 drivers every 20ms, simulating speed, tire wear, fuel consumption, sector progression, and race positions. Implements driver skill factors, variable pit stop strategies, DRS, and lap time tracking.
-- **RingBuffer**: Thread-safe circular buffer using condition variables (`std::condition_variable`) for efficient blocking instead of busy-waiting. Supports graceful shutdown mechanism.
-- **StrategyAnalyzer**: Optional pre-race strategy module that searches for an optimal pit lap for selected drivers.
-- **RaceSimulator**: Lightweight race simulation used by the strategy analyzer to evaluate pit lap candidates.
-- **TrackLimitsMonitor**: Monitors track limits violations, checking at sector boundaries for realistic frequency. Tracks warnings and penalties per driver with thread-safe access.
-- **PenaltyEnforcer**: Thread-safe penalty state machine. Stores penalties per driver and is consulted by the telemetry generator to add penalty time during pit stops.
-- **Main Application**: Orchestrates strategy analysis (optional), track limits monitoring, and the producer/consumer threads, and renders the live race leaderboard including gaps, DRS, fuel, and fastest lap.
+## Build
 
-## Building
-
-### Requirements
-
-- C++17 compatible compiler (GCC 7+, Clang 5+, or MSVC 2017+)
-- POSIX threads support (pthread)
-
-### Compilation
+**Requirements:** C++17 compiler, pthreads (GCC 7+, Clang 5+, or MSVC 2017+)
 
 ```bash
 g++ -std=c++17 -I src \
@@ -69,213 +41,66 @@ g++ -std=c++17 -I src \
   -o f1-telemetry -pthread
 ```
 
-Or using clang:
+Swap `g++` for `clang++` — same flags.
+
+## Run
 
 ```bash
-clang++ -std=c++17 -I src \
-  src/main.cpp \
-  src/telemetry/TelemetryGenerator.cpp \
-  src/strategy/RaceSimulator.cpp \
-  src/strategy/StrategyAnalyzer.cpp \
-  src/race-control/TrackLimitsMonitor.cpp \
-  src/race-control/PenaltyEnforcer.cpp \
-  -o f1-telemetry -pthread
+./f1-telemetry
 ```
 
-## Usage
+At startup you'll be asked if you want to run strategy analysis. Type `y`, then enter comma-separated driver indices (e.g. `4,6,1`) to compute optimal pit laps for those drivers before the race begins.
 
-1. **Run the simulator**:
-   ```bash
-   ./f1-telemetry
-   ```
+## Leaderboard
 
-2. **(Optional) Run optimal strategy analysis**:
-   - When prompted, type `y`
-   - Enter driver indices (comma-separated, no spaces), e.g. `4,6,1`
-   - The program prints the chosen pit lap per selected driver
-   - Then it prints the full list of strategies that will be used and waits for **Enter** before starting the race
+The terminal display refreshes every tick and shows all 20 drivers:
 
-2. **View the live race**: The terminal displays a beautiful, color-coded leaderboard:
-   ```
-   🏁 LAP 15/50 🏁
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   P1 🔴 Charles Leclerc      █████████░ Lap 15  Speed: 210 kph  Tire: 25%
-   P2 🔵 Max Verstappen       ████████░░ Lap 14  Speed: 205 kph  Tire: 32%  
-   P3 ⚪ Lewis Hamilton       ███████░░░ Lap 14  Speed: 198 kph  Tire: 28%
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   ```
+```
+🏁 LAP 15/50 🏁
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+P1  🔴 Charles Leclerc    ████████░░  Lap 15  220 kph  Tire 31%  [LEADER]
+P2  🔵 Max Verstappen     ███████░░░  Lap 15  217 kph  Tire 28%  +1.4s
+P3  🟠 Lando Norris       ██████░░░░  Lap 14  211 kph  Tire 44%  +8.2s  DRS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚡ Fastest Lap: Max Verstappen  1:18.432
+```
 
-   **Display Features:**
-   - Color-coded positions (Gold/Silver/Bronze for top 3)
-   - Team emojis for all 10 teams:
-     - 🔴 Ferrari, 🔵 Red Bull, ⚪ Mercedes, 🟠 McLaren
-     - 🟢 Aston Martin, 💙 Alpine/Williams, ⚫ Racing Bulls/Kick Sauber
-   - Progress bars showing sector completion within current lap
-   - Gold `LEADER` badge for P1; grey `+X.Xs` gap-to-leader for all others
-   - Color-coded speed (green = fast, yellow = medium, red = slow)
-   - Color-coded tire wear (green = fresh, yellow = worn, red = critical)
-   - Color-coded fuel load (green = plenty, yellow = mid-race, red = low)
-   - Green `DRS` badge when a driver has the rear wing open
-   - Purple `⚡FL` badge and footer for the overall fastest-lap holder
-   - Purple `[IN PITS]` indicator during pit stops
-   - Real-time updates showing all 20 drivers
+**Badges:**
+| Badge | Meaning |
+|---|---|
+| Gold `LEADER` | Race leader (P1) |
+| Grey `+X.Xs` | Gap to leader |
+| Green `DRS` | Rear wing open |
+| Purple `⚡FL` | Fastest lap holder |
+| Purple `[IN PITS]` | Currently in pit lane |
 
-3. **Race end**: The simulation runs until the leader completes the configured number of laps, then prints the winner.
+**Color coding:** speed (green/yellow/red), tire wear (green/yellow/red), fuel load (green/yellow/red), top-3 positions (gold/silver/bronze)
 
-## Project Structure
+**Team emojis:** 🔴 Ferrari · 🔵 Red Bull · ⚪ Mercedes · 🟠 McLaren · 🟢 Aston Martin · 💙 Alpine & Williams · ⚫ Racing Bulls & Kick Sauber
+
+## Project structure
 
 ```
 f1-telemetry/
 ├── src/
-│   ├── main.cpp                    # Main application entry point
-│   ├── common/
-│   │   └── types.h                 # Data structures (TelemetryFrame, DriverProfile, CarProfile, TrackProfile)
+│   ├── main.cpp
+│   ├── common/types.h               # TelemetryFrame, DriverProfile, CarProfile, TrackProfile
+│   ├── data/season_data.h           # 2025 driver & team definitions
+│   ├── ingestion/RingBuffer.h       # Thread-safe circular buffer
 │   ├── telemetry/
-│   │   ├── TelemetryGenerator.h    # Telemetry generation class interface
-│   │   └── TelemetryGenerator.cpp  # Telemetry generation implementation
+│   │   ├── TelemetryGenerator.h
+│   │   └── TelemetryGenerator.cpp   # Core simulation loop
 │   ├── strategy/
-│   │   ├── StrategyAnalyzer.h      # Strategy analysis interface
-│   │   ├── StrategyAnalyzer.cpp   # Strategy analysis implementation
-│   │   ├── RaceSimulator.h         # Race simulation interface
-│   │   └── RaceSimulator.cpp      # Race simulation implementation
-│   ├── race-control/
-│   │   ├── TrackLimitsMonitor.h    # Track limits monitoring interface
-│   │   └── TrackLimitsMonitor.cpp # Track limits monitoring implementation
-│   │   ├── PenaltyEnforcer.h       # Penalty state machine interface
-│   │   └── PenaltyEnforcer.cpp     # Penalty state machine implementation
-│   └── ingestion/
-│       └── RingBuffer.h            # Thread-safe ring buffer implementation
+│   │   ├── StrategyAnalyzer.{h,cpp} # Parallel optimal pit lap search
+│   │   └── RaceSimulator.{h,cpp}    # Lightweight sim used by analyzer
+│   └── race-control/
+│       ├── TrackLimitsMonitor.{h,cpp}
+│       └── PenaltyEnforcer.{h,cpp}
 └── README.md
 ```
 
-## Data Models
 
-### DriverProfile
-Models driver behavior characteristics:
-- `aggression`: Affects tire wear rate (0.0 - 1.0)
-- `consistency`: Lap time variance (0.0 - 1.0)
-- `tire_management`: Resistance to tire degradation (0.0 - 1.0)
-- `risk_tolerance`: Willingness to take risks (0.0 - 1.0)
+## License
 
-### CarProfile
-Models car performance characteristics:
-- `engine_power`: Top speed capability (0.0 - 1.0)
-- `aero_efficiency`: Cornering and downforce (0.0 - 1.0)
-- `cooling_efficiency`: Tire temperature stability (0.0 - 1.0)
-- `reliability`: Failure probability (0.0 - 1.0)
+MIT
 
-### TelemetryFrame
-Contains per-frame race data:
-- Race position, timestamp, driver ID
-- Lap number, sector number
-- Speed, throttle, brake inputs
-- Tire temperatures (FL, FR, RL, RR)
-- Tire wear percentage
-
-### TrackProfile
-Defines track characteristics:
-- Number of sectors, lap length
-- Tire wear factor
-- Overtaking difficulty
-- Safety car probability
-
-## Example Configuration
-
-The default configuration includes the full 2025 F1 grid with 20 drivers across 10 teams:
-
-**Top Teams:**
-- **Max Verstappen** (Red Bull): High aggression (0.88), exceptional consistency (0.98), excellent tire management (0.88)
-- **Charles Leclerc** (Ferrari): Very aggressive (0.94), high consistency (0.96), good tire management (0.85)
-- **Lando Norris** (McLaren): High aggression (0.82), excellent consistency (0.94), good tire management (0.86)
-- **Oscar Piastri** (McLaren): Moderate aggression (0.74), excellent consistency (0.90), good tire management (0.84)
-
-**Notable Situations:**
-- **Lewis Hamilton** (Ferrari): Struggling with adaptation - reduced consistency (0.72) and tire management (0.78)
-- **Yuki Tsunoda** (Red Bull): Rookie at top team - low consistency (0.58) and tire management (0.58)
-
-## Technical Details
-
-### Thread Safety & Synchronization
-- **Condition Variables**: Ring buffer uses `std::condition_variable` for efficient blocking
-  - `cv_not_empty_`: Consumer waits when buffer is empty (instead of busy-waiting)
-  - Eliminates CPU spinning and reduces power consumption
-- **Mutex Protection**: `std::mutex` with `std::unique_lock` for thread-safe operations
-- **Graceful Shutdown**: `shutdown()` method notifies all waiting threads and prevents new operations
-- **Atomic Flags**: Used for race finish detection and thread coordination
-
-### Performance
-- Ring buffer capacity: 1024 frames (configurable)
-- Update rate: 50Hz (20ms per frame)
-- Zero busy-waiting: Condition variables ensure threads sleep when waiting
-- Low-latency design: Minimal blocking between producer and consumer
-- Efficient wake-up: Only one thread notified per operation (`notify_one()`)
-
-### Advanced Simulation Features
-- **Driver Skill Factor**: Speed calculation includes `driver_skill = 0.80 + consistency * 0.25`, meaning consistent drivers extract more performance
-- **Variable Pit Stop Thresholds**: Range from 65-90% tire wear based on:
-  - Base: `0.65 + (tire_management * 0.25)`
-  - Risk adjustment: `±7.5%` based on risk tolerance
-- **Variable Pit Stop Duration**: 2-3 seconds based on car reliability
-- **Position Calculation**: Real-time sorting by total distance (lap distance + distance in current lap)
-
-## Implementation Highlights
-
-### Condition Variables
-The ring buffer implementation uses condition variables to eliminate busy-waiting:
-
-```cpp
-// Consumer waits efficiently when buffer is empty
-cv_not_empty_.wait(lock, [this]() { 
-    return head_ != tail_ || shutdown_;
-});
-```
-
-The consumer sleeps when the buffer is empty, reducing CPU usage and improving system efficiency.
-
-### Driver Performance Model
-Driver consistency directly impacts speed:
-- High consistency (0.95+): Can extract 100%+ of car performance
-- Low consistency (0.60): Only extracts ~80% of car performance
-- This creates realistic performance gaps between drivers
-
-### Pit Stop Strategy
-Each driver has a unique pit stop threshold:
-- Tire management experts (0.95): Pit at ~90% wear
-- Rookies (0.58): Pit at ~70% wear (more cautious)
-- Risk-takers: Pit slightly earlier, conservative drivers later
-
-### Optimal Strategy Analysis (how it works)
-When enabled at startup, the program can compute an "optimal" pit lap for a subset of drivers and feed those pit laps into the live telemetry generator.
-
-- **Candidate laps**: `StrategyAnalyzer::PIT_LAPS_TO_TEST` defines a small set of laps to evaluate (e.g. 12, 15, 18, ...).
-- **Parallel evaluation**: For a given driver, the analyzer launches multiple simulations concurrently using `std::async(std::launch::async, ...)` and collects results with `std::future<float>`.
-- **Selection**: The lap with the lowest simulated finish time is chosen and applied to the live race as a single planned pit stop for that driver.
-
-### Track Limits Monitoring (how it works)
-The `TrackLimitsMonitor` processes telemetry frames to detect track limits violations with realistic frequency and consequences.
-
-- **Sector-based checking**: Violations are only checked at sector boundaries (not every frame), ensuring realistic frequency (approximately 3 checks per lap instead of 50 per second).
-- **Violation probability factors**:
-  - **Aggression**: `driver.aggression * 0.01` - More aggressive drivers push limits more often
-  - **Speed**: `0.005` if speed > 200 kph - Higher speeds increase violation risk
-  - **Tire wear**: `tire_wear * 0.01` if wear > 60% - Worn tires reduce control
-- **Penalty system**: 
-  - Each violation adds a warning and records the lap number
-  - After **3 warnings**, the driver receives a penalty flag (`has_penalty = true`) and a time penalty is issued via `PenaltyEnforcer`
-- **Thread safety**: Uses `std::mutex` to protect the violations map during concurrent access from producer and consumer threads
-
-### Penalty Enforcer (how it works)
-The `PenaltyEnforcer` is a thread-safe penalty state machine keyed by `driver_id`.
-
-- **Issuing**: `issuePenalty(driver_id, seconds)` marks the penalty as `PENDING` and stores the duration.
-- **Serving**: The live `TelemetryGenerator` consults `shouldServePenalty(driver_id, current_time_ns)` when a driver enters the pits; if `PENDING`, it switches to `SERVING` and timestamps the start using **simulation time (ns)**.
-- **Completion**: `isPenaltyComplete(driver_id, current_time_ns)` only becomes true after the simulated duration elapses, then transitions to `SERVED`.
-
-## Future Enhancements
-
-Potential improvements:
-- [ ] Safety car deployment
-- [ ] Multi-track support with track-specific characteristics
-- [ ] Qualifying sessions with grid positions
-- [ ] Race incidents and DNFs (crashes, mechanical failures)
-- [ ] Yellow flag periods affecting speed
