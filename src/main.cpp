@@ -11,6 +11,7 @@
 #include <atomic>
 #include <algorithm>
 #include <sstream>
+#include <iomanip>
 
 using namespace std;
 
@@ -241,7 +242,13 @@ int main(){
                     }
                     
                     cout << " Lap " << f.lap;
-                    
+
+                    if (f.race_position == 1) {
+                        cout << "  \033[1;33mLEADER\033[0m";
+                    } else {
+                        cout << "  \033[0;37m+" << fixed << setprecision(1) << f.gap_to_leader_s << "s\033[0m";
+                    }
+
                     if(f.speed_kph == 0.0f) {
                         cout << "  \033[1;35m[IN PITS]\033[0m";
                     } else {

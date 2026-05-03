@@ -61,9 +61,16 @@ void TelemetryGenerator::calculatePositions(vector<TelemetryFrame>& frames) {
     sort(positions.begin(), positions.end(), [](const pair<uint32_t, float>& a, const pair<uint32_t, float>& b) {
         return a.second > b.second;
     });
+
+    float leader_dist = positions[0].second;
+    // Use a fixed 200 kph reference to convert km gaps to seconds consistently
+    constexpr float ref_speed_kms = 200.0f / 3600.0f;
+
     for(uint32_t i = 0; i < positions.size(); i++) {
         uint32_t driver_id = positions[i].first;
         frames[driver_id].race_position = static_cast<uint8_t>(i + 1);
+        float dist_behind = leader_dist - positions[i].second;
+        frames[driver_id].gap_to_leader_s = dist_behind / ref_speed_kms;
     }
 }
 

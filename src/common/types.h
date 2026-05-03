@@ -42,6 +42,7 @@ struct TelemetryFrame {
     float tire_wear;           // 0.0 (new) – 1.0 (dead)
     float fuel_load_kg;        // remaining fuel in kg
     bool  drs_active;          // DRS open this frame
+    float gap_to_leader_s;     // time gap to race leader (0 for leader)
 };
 
 struct TrackProfile {
