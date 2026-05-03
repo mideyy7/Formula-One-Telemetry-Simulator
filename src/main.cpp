@@ -12,8 +12,20 @@
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
+#include <cstdio>
+#include <limits>
 
 using namespace std;
+
+static string formatLapTime(float sim_seconds) {
+    // Simulation runs at 120x real speed; scale back to produce a realistic display time
+    float real_s = sim_seconds * 120.0f;
+    int   mins   = static_cast<int>(real_s) / 60;
+    float secs   = real_s - mins * 60.0f;
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%d:%06.3f", mins, secs);
+    return buf;
+}
 
 vector<uint32_t> parseDriverIds(const string& input, size_t max_id){
     vector<uint32_t> driver_ids;
@@ -198,11 +210,22 @@ int main(){
                 cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
                 
                 vector<TelemetryFrame> sortedFrames = latestFrames;
-                sort(sortedFrames.begin(), sortedFrames.end(), 
+                sort(sortedFrames.begin(), sortedFrames.end(),
                         [](const TelemetryFrame& a, const TelemetryFrame& b) {
                             return a.race_position < b.race_position;
                         });
-                
+
+                // Determine which driver currently holds the overall fastest lap
+                float   fl_time      = 0.0f;
+                uint32_t fl_driver   = numeric_limits<uint32_t>::max();
+                for (const auto& f : sortedFrames) {
+                    if (f.fastest_lap_s > 0.0f &&
+                        (fl_time == 0.0f || f.fastest_lap_s < fl_time)) {
+                        fl_time   = f.fastest_lap_s;
+                        fl_driver = f.driver_id;
+                    }
+                }
+
                 for(const auto& f : sortedFrames) {
                     string posColor = "\033[1;33m";
                     if(f.race_position == 1) posColor = "\033[1;93m";
@@ -275,11 +298,21 @@ int main(){
                         cout << "  \033[1;32mDRS\033[0m";
                     }
 
+                    if (f.driver_id == fl_driver) {
+                        cout << "  \033[1;35m⚡FL\033[0m";
+                    }
+
                     cout << "\n";
                 }
                 
                 cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
-                
+
+                if (fl_driver != numeric_limits<uint32_t>::max()) {
+                    cout << "\033[1;35m⚡ Fastest Lap: "
+                         << drivers[fl_driver].driver_id
+                         << "  " << formatLapTime(fl_time) << "\033[0m\n";
+                }
+
                 cout << "\n⚠️  TRACK LIMITS VIOLATIONS:\n";
                 bool any_violations = false;
                 for(const auto& f : sortedFrames) {

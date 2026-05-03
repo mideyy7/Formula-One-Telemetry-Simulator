@@ -24,6 +24,8 @@ TelemetryGenerator::TelemetryGenerator(
         s.pit_stop_start_time_ns = 0;
         s.pit_stop_end_time_ns = 0;
         s.fuel_load_kg = 100.0f;
+        s.lap_start_time_ns = 0;
+        s.fastest_lap_s = 0.0f;
     }
 }
 
@@ -154,6 +156,15 @@ TelemetryFrame TelemetryGenerator::generateFrame(uint32_t i) {
 
             if (state.sector > track_.sectors) {
                 state.sector = 1;
+                // Capture lap time on completion of lap 1 onwards
+                if (state.lap > 0 && state.lap_start_time_ns > 0) {
+                    float lap_s = static_cast<float>(current_time_ns_ - state.lap_start_time_ns)
+                                  / 1'000'000'000.0f;
+                    if (state.fastest_lap_s == 0.0f || lap_s < state.fastest_lap_s) {
+                        state.fastest_lap_s = lap_s;
+                    }
+                }
+                state.lap_start_time_ns = current_time_ns_;
                 state.lap++;
             }
         }
@@ -170,6 +181,7 @@ TelemetryFrame TelemetryGenerator::generateFrame(uint32_t i) {
     frame.tire_wear = state.tire_wear;
     frame.fuel_load_kg = state.fuel_load_kg;
     frame.drs_active = drs_open_[i] && !state.is_on_pit;
+    frame.fastest_lap_s = state.fastest_lap_s;
     float base_temp = state.is_on_pit ? 60.0f : clamp(80.0f + speed * 0.05f, 60.0f, 120.0f);
     for(int t = 0; t < 4; t++) {
         frame.tire_temp_c[t] = base_temp;

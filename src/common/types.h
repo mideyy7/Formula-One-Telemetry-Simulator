@@ -43,6 +43,7 @@ struct TelemetryFrame {
     float fuel_load_kg;        // remaining fuel in kg
     bool  drs_active;          // DRS open this frame
     float gap_to_leader_s;     // time gap to race leader (0 for leader)
+    float fastest_lap_s;       // driver's personal best lap (simulation seconds, 0 if none yet)
 };
 
 struct TrackProfile {
@@ -68,4 +69,6 @@ struct DriverState {
     uint64_t pit_stop_start_time_ns;
     uint64_t pit_stop_end_time_ns;
     float fuel_load_kg;        // remaining fuel in kg
+    uint64_t lap_start_time_ns; // simulation timestamp when the current lap began
+    float fastest_lap_s;        // personal best lap in simulation seconds (0 until first lap done)
 };
