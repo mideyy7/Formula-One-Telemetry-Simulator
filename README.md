@@ -22,6 +22,10 @@ A high-performance, multi-threaded Formula 1 telemetry data generator and proces
 - **Penalty Enforcer**: Tracks issued penalties and enforces them during pit stops using simulation time
 - **Driver Skill Factor**: Consistency affects how much performance drivers can extract from their cars
 - **Track Configuration**: Configurable track profiles with sectors, lap length, and environmental factors
+- **Fuel Load Model**: Cars start with 100 kg of fuel, consuming 0.2 kg/km. Fuel weight penalises top speed (~5 kph at full load), tapering as the race progresses. Drivers are refuelled at pit stops for the remaining race distance.
+- **DRS System**: Drag Reduction System activates in sector 1 when a driver is within the 1-second detection window of the car directly ahead, providing a ~12 kph speed boost. Recalculated every tick from current distance deltas.
+- **Gap-to-Leader**: Every `TelemetryFrame` carries a real-time time gap to the race leader, computed from the raw distance difference at a 200 kph reference speed. The leaderboard shows a gold `LEADER` badge for P1 and a `+X.Xs` gap for all other drivers.
+- **Fastest Lap Tracking**: Each driver's personal best lap time is recorded using simulation timestamps. The overall fastest-lap holder is highlighted with a purple `⚡FL` badge in the leaderboard and a persistent footer line shows their name and formatted lap time.
 
 ## Architecture
 
@@ -37,13 +41,13 @@ The system uses a producer-consumer architecture with a thread-safe ring buffer:
 
 ### Components
 
-- **TelemetryGenerator**: Generates telemetry frames for all 20 drivers every 20ms, simulating speed, tire wear, sector progression, and race positions. Implements driver skill factors and variable pit stop strategies.
+- **TelemetryGenerator**: Generates telemetry frames for all 20 drivers every 20ms, simulating speed, tire wear, fuel consumption, sector progression, and race positions. Implements driver skill factors, variable pit stop strategies, DRS, and lap time tracking.
 - **RingBuffer**: Thread-safe circular buffer using condition variables (`std::condition_variable`) for efficient blocking instead of busy-waiting. Supports graceful shutdown mechanism.
 - **StrategyAnalyzer**: Optional pre-race strategy module that searches for an optimal pit lap for selected drivers.
 - **RaceSimulator**: Lightweight race simulation used by the strategy analyzer to evaluate pit lap candidates.
 - **TrackLimitsMonitor**: Monitors track limits violations, checking at sector boundaries for realistic frequency. Tracks warnings and penalties per driver with thread-safe access.
 - **PenaltyEnforcer**: Thread-safe penalty state machine. Stores penalties per driver and is consulted by the telemetry generator to add penalty time during pit stops.
-- **Main Application**: Orchestrates strategy analysis (optional), track limits monitoring, and the producer/consumer threads, and renders the live race leaderboard.
+- **Main Application**: Orchestrates strategy analysis (optional), track limits monitoring, and the producer/consumer threads, and renders the live race leaderboard including gaps, DRS, fuel, and fastest lap.
 
 ## Building
 
@@ -107,9 +111,13 @@ clang++ -std=c++17 -I src \
      - 🔴 Ferrari, 🔵 Red Bull, ⚪ Mercedes, 🟠 McLaren
      - 🟢 Aston Martin, 💙 Alpine/Williams, ⚫ Racing Bulls/Kick Sauber
    - Progress bars showing sector completion within current lap
+   - Gold `LEADER` badge for P1; grey `+X.Xs` gap-to-leader for all others
    - Color-coded speed (green = fast, yellow = medium, red = slow)
    - Color-coded tire wear (green = fresh, yellow = worn, red = critical)
-   - Purple "[IN PITS]" indicator during pit stops
+   - Color-coded fuel load (green = plenty, yellow = mid-race, red = low)
+   - Green `DRS` badge when a driver has the rear wing open
+   - Purple `⚡FL` badge and footer for the overall fastest-lap holder
+   - Purple `[IN PITS]` indicator during pit stops
    - Real-time updates showing all 20 drivers
 
 3. **Race end**: The simulation runs until the leader completes the configured number of laps, then prints the winner.
@@ -266,7 +274,6 @@ The `PenaltyEnforcer` is a thread-safe penalty state machine keyed by `driver_id
 ## Future Enhancements
 
 Potential improvements:
-- [ ] DRS (Drag Reduction System) modeling
 - [ ] Safety car deployment
 - [ ] Multi-track support with track-specific characteristics
 - [ ] Qualifying sessions with grid positions
