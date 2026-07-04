@@ -3,7 +3,7 @@ project(RaceCondition-z CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX EXTENSIONS OFF)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_compile_options(-Wall -Wextra -Wpedantic)
 
@@ -14,7 +14,7 @@ FetchContent_Declare(ftxui
     GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI
     GIT_TAG v5.0.0
 )
-FetchContent_MakeAvailabe(ftxui)
+FetchContent_MakeAvailable(ftxui)
 
 # GoogleTest
 FetchContent_Declare(googleTest
@@ -23,7 +23,7 @@ FetchContent_Declare(googleTest
 )
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE) # specific for windows
 # - on Windows, mixing static/dynamic C runtimes between the code and gtest can cause link errors. This forces gtest to use the shared runtime to match typical project settings. 
-FetchContent_MakeAvailabe(googletest)
+FetchContent_MakeAvailable(googletest)
 
 add_subdirectory(src)
 add_subdirectory(tests)
