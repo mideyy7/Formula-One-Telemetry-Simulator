@@ -1,10 +1,11 @@
-# Phase 1: header-only library (no .cpp files yet).
-# Phase 3 will upgrade this to STATIC when .cpp source files are added.
-add_library(rcz_lib INTERFACE)
+# Phase 2: STATIC now that we have a .cpp source file (thread_pool.cpp).
+add_library(rcz_lib STATIC
+    concurrency/thread_pool.cpp
+)
 
-target_include_directories(rcz_lib INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(rcz_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(rcz_lib INTERFACE
+target_link_libraries(rcz_lib PUBLIC
     ftxui::screen
     ftxui::dom
     ftxui::component
