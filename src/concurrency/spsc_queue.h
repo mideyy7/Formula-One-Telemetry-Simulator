@@ -4,6 +4,10 @@
 #include <array>
 #include <cstddef>
 
+
+// Single-Producer Single-Consumer bounded ring buffer.
+// Used for: telemetry generator → display consumer pipeline.
+
 template<typename T, std::size_t Capacity>
 class SpscQueue {
     static_assert(Capacity >= 2, "Capacity must be at least 2");
