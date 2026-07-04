@@ -84,8 +84,3 @@ TEST(ThreadPoolTest, SubmitAfterDestructionThrows) {
     // (This tests the stop_ guard in submit().)
     SUCCEED(); // placeholder — the above tests cover the important paths
 }
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

@@ -25,5 +25,7 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE) # specific for windows
 # - on Windows, mixing static/dynamic C runtimes between the code and gtest can cause link errors. This forces gtest to use the shared runtime to match typical project settings. 
 FetchContent_MakeAvailable(googletest)
 
+enable_testing()
+
 add_subdirectory(src)
 add_subdirectory(tests)

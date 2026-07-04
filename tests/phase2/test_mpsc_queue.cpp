@@ -75,8 +75,3 @@ TEST(MpscQueueTest, NoItemsLostConcurrent) {
 
     EXPECT_EQ(sum_in.load(), sum_out.load());
 }
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}
