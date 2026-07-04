@@ -32,7 +32,7 @@ struct DriverProfile {
 };
 
 struct CarProfile {
-    std::string name;
+    std::string team;
     float engine_power;         // top speed multiplier
     float aero_efficiency;      // cornering performance
     float cooling;              // tire temperature management
