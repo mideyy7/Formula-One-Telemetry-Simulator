@@ -23,18 +23,18 @@ public:
 
 
     bool empty() const {
-        return head_.load(std::memory_order_acquire) == tail_.load(std::memory_order_acquire);
+        return head_.load(std::memory_order_relaxed) == tail_.load(std::memory_order_relaxed);
     }
 
     // approximate size
     std::size_t size_approx() const {
-        const auto tail = tail_.load(std::memory_order_acquire);
-        const auto head = head_.load(std::memory_order_acquire);
+        const auto tail = tail_.load(std::memory_order_relaxed);
+        const auto head = head_.load(std::memory_order_relaxed);
         return (tail - head + Capacity) % Capacity;
     }
 
     // Called by Producer and returns false if queue is full( caller should spin or drop)
-    bool push(T& item) {
+    bool push(const T& item) {
         // relaxed: read tail_ here only, no ordering needed on index
         const auto tail = tail_.load(std::memory_order_relaxed);
         const auto next = (tail + 1) % Capacity;
@@ -54,9 +54,9 @@ public:
     // push() overload for semantics
     bool push(T&& item) {
         const auto tail = tail_.load(std::memory_order_relaxed);
-        const auto next = (tail_ + 1) % Capacity;
+        const auto next = (tail + 1) % Capacity;
         if (next == head_.load(std::memory_order_acquire)) return false;
-        buffer_[tail_] = std::move(item);
+        buffer_[tail] = std::move(item);
         tail_.store(next, std::memory_order_release);
         return true;
     }
@@ -64,8 +64,8 @@ public:
 
     // Consumer calls this and returns false if queue is empty
     bool pop(T& out) {
-        const auto head = head_.load(std::memory_order_acquire);
-        const auto next = (head_ + 1) % Capacity;
+        const auto head = head_.load(std::memory_order_relaxed);
+        const auto next = (head + 1) % Capacity;
 
         // aquire: synchronise with the producer's release store on tail_
         // ensure the item is fully written before read
@@ -73,7 +73,7 @@ public:
         out = buffer_[head];
         
         // release: tell the producer that the slot is free
-        head_.store(next, std::memory_order_acquire);
+        head_.store(next, std::memory_order_release);
         return true; 
     }
 };
