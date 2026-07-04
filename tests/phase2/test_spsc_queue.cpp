@@ -84,8 +84,3 @@ TEST(SpscQueueTest, ConcurrentStress) {
 
     EXPECT_EQ(sum_produced.load(), sum_consumed.load());
 }
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

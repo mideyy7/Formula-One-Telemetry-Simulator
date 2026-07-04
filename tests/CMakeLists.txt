@@ -18,12 +18,13 @@ endfunction()
 
 add_phase_tests(phase1 phase1/test_types.cpp)
 
+add_phase_tests(phase2
+    phase2/test_spsc_queue.cpp
+    phase2/test_mpsc_queue.cpp
+    phase2/test_thread_pool.cpp
+)
+
 # Uncomment each block as you complete the phase:
-# add_phase_tests(phase2
-#     phase2/test_spsc_queue.cpp
-#     phase2/test_mpsc_queue.cpp
-#     phase2/test_thread_pool.cpp
-# )
 # add_phase_tests(phase3
 #     phase3/test_telemetry_generator.cpp
 #     phase3/test_latch.cpp
