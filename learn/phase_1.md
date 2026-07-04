@@ -484,7 +484,7 @@ cmake --build build
 ctest --test-dir build -R phase1 --output-on-failure
 
 # Run the executable (verify driver list prints)
-./build/pitwall
+./build/src/RaceCondition-z
 ```
 
 ---
