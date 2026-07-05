@@ -1,6 +1,7 @@
 # Phase 2: STATIC now that we have a .cpp source file (thread_pool.cpp).
 add_library(rcz_lib STATIC
     concurrency/thread_pool.cpp
+    simulation/telemetry_generator.cpp
 )
 
 target_include_directories(rcz_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

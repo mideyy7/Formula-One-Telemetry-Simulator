@@ -7,6 +7,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_compile_options(-Wall -Wextra -Wpedantic)
 
+# Phase 3 uses std::jthread / std::stop_token. Apple's libc++ ships these
+# behind an "experimental" flag (they exist, just disabled by default).
+# GCC/libstdc++ needs no such flag, so only add it for Clang.
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-fexperimental-library)
+endif()
+
 include(FetchContent)
 
 # FIXUI - terminal UI Library

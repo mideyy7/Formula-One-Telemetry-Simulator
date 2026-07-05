@@ -24,13 +24,14 @@ add_phase_tests(phase2
     phase2/test_thread_pool.cpp
 )
 
+add_phase_tests(phase3
+    phase3/test_telemetry_generator.cpp
+    phase3/test_latch.cpp
+    phase3/test_barrier.cpp
+    phase3/test_semaphore.cpp
+)
+
 # Uncomment each block as you complete the phase:
-# add_phase_tests(phase3
-#     phase3/test_telemetry_generator.cpp
-#     phase3/test_latch.cpp
-#     phase3/test_barrier.cpp
-#     phase3/test_semaphore.cpp
-# )
 # add_phase_tests(phase4
 #     phase4/test_track_limits.cpp
 #     phase4/test_penalty_enforcer.cpp
