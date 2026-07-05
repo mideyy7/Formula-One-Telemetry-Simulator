@@ -42,3 +42,21 @@ PenaltyEnforcer reads and writes the exact same MpscQueue. When process_events()
 
 Fix: snapshot everything currently in the queue into a local buffer first, then process that buffer. Any event pushed while processing lands in the queue fresh, for the next call (or another consumer) to see — it's no longer at risk of being swallowed by the same pass that created it.
 //////////////////////////////////////////////
+
+///////buggg after running phase 5 to print in terminal
+eresting — I let it run to completion and noticed something clearly unrealistic: 19 out of 20 drivers ended up penalized. That's not a Phase 4 bug — TrackLimitsMonitor::check() behaves exactly as designed and tested. The problem is how I'm calling it here: its BASE_RATE was calibrated (and tested) for being called roughly once per sector crossing (~3 times a lap), but I'm calling it every single 20ms tick — about 9x too often — so probability compounds into an almost-guaranteed penalty for everyone. Let me throttle it to match the cadence it was actually designed for.
+
+Rewrote src/main.cpp to actually wire together everything you've built (Phases 1–5): the TelemetryGenerator producer thread, TrackLimitsMonitor + PenaltyEnforcer + WeatherSystem, and the Leaderboard/RaceState shared layer. It runs the simulated race, printing a live standings table every half-second, and prints final results when the race ends (~26 real seconds, since the simulation runs at 120x speed).
+
+How to run it yourself:
+
+
+cmake --build build
+./build/src/RaceCondition-z
+Let it run to the end, or Ctrl+C any time.
+
+Two real bugs this caught (by actually running it, not just building it)
+Column overflow: the "Gap" number used std::to_string(float), which always prints 6 decimal places (0.000000s) — wide enough to bleed into the next column with no space. Fixed with a proper fixed-precision formatter.
+Unrealistic penalties: I first called TrackLimitsMonitor::check() every 20ms tick (50Hz). Its violation probability was calibrated in Phase 4 for being called roughly once per sector crossing (~3x/lap) — calling it 9x too often meant 19 of 20 drivers got penalized by race end. Throttled it to every 9th tick; now it's a realistic 1-in-20.
+One thing to keep in mind for when we actually do Phase 6
+The official Phase 6 plan (in phase_6.md) wires TrackLimitsMonitor, PenaltyEnforcer, and WeatherSystem all onto one shared event queue, and hands that same queue to the Dashboard for its event feed. That reproduces the exact self-consumption bug we found and fixed in Phase 4 — except now it would also silently swallow WEATHER_CHANGE events before the UI ever saw them. I sidestepped it here by reading each system's live query methods directly (weather.current(), penalty.penalty_state(id)) instead of draining a shared display queue — worth deciding deliberately, not accidentally, when we build the real dashboard.
