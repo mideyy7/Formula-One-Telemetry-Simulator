@@ -31,13 +31,14 @@ add_phase_tests(phase3
     phase3/test_semaphore.cpp
 )
 
+add_phase_tests(phase4
+    phase4/test_track_limits.cpp
+    phase4/test_penalty_enforcer.cpp
+    phase4/test_weather.cpp
+    phase4/test_strategy_analyzer.cpp
+)
+
 # Uncomment each block as you complete the phase:
-# add_phase_tests(phase4
-#     phase4/test_track_limits.cpp
-#     phase4/test_penalty_enforcer.cpp
-#     phase4/test_weather.cpp
-#     phase4/test_strategy_analyzer.cpp
-# )
 # add_phase_tests(phase5
 #     phase5/test_leaderboard.cpp
 #     phase5/test_race_state.cpp
