@@ -7,6 +7,24 @@
 - know the use of each attribute in the struct of each of the types
 - NOT YET GONE IN DEPTH INTO WHAT PHASE 1 TESTS MEAN - automated with AI tests
 
+    {\textbf{RaceConditionZ - Formula One Telemetry Simulator} $|$ \underline{\href{https://github.com/mideyy7/Formula-One-Telemetry-Simulator}{GitHub}} $|$ \emph{C++, Python, CMake}}{}
+\resumeItemListStart
+ \resumeItem{Sustained \texttt{47M frames/sec} in throughput benchmarks and verified
+race-free under ThreadSanitizer in concurrent stress tests by engineering a lock-free
+SPSC ring buffer with explicit acquire/release ordering}
+
+\resumeItem{Sustained \texttt{16M events/sec} across 4 concurrent producers by
+implementing a lock-free MPSC queue (Vyukov linked-list; wait-free producers —
+single exchange, no retry) as a multi-subsystem event bus.}
+
+        \resumeItem{Delivered \texttt{3M reads/sec} across 7 concurrent readers under
+        continuous write pressure by protecting a shared leaderboard with
+        \texttt{std::shared\_mutex}; single-writer enforced as one simulation thread calls \texttt{update()}}
+
+        \resumeItem{Measured \texttt{68.9\,\textmu s p99} end-to-end latency on the lock-free SPSC pipeline (push-to-pop, 100K timestamped items); in the full simulation,
+all shared-state updates run on the generator tick thread, keeping the
+telemetry path contention-free.}
+
 
 # dAY 2
 Two real bugs I caught by test-compiling before writing the real files (both explained in the lesson doc):
