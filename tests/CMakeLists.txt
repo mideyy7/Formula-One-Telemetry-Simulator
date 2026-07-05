@@ -38,9 +38,10 @@ add_phase_tests(phase4
     phase4/test_strategy_analyzer.cpp
 )
 
+add_phase_tests(phase5
+    phase5/test_leaderboard.cpp
+    phase5/test_race_state.cpp
+)
+
 # Uncomment each block as you complete the phase:
-# add_phase_tests(phase5
-#     phase5/test_leaderboard.cpp
-#     phase5/test_race_state.cpp
-# )
 # add_phase_tests(phase6 phase6/test_dashboard_integration.cpp)
