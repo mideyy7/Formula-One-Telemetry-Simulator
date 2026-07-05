@@ -60,3 +60,45 @@ Column overflow: the "Gap" number used std::to_string(float), which always print
 Unrealistic penalties: I first called TrackLimitsMonitor::check() every 20ms tick (50Hz). Its violation probability was calibrated in Phase 4 for being called roughly once per sector crossing (~3x/lap) — calling it 9x too often meant 19 of 20 drivers got penalized by race end. Throttled it to every 9th tick; now it's a realistic 1-in-20.
 One thing to keep in mind for when we actually do Phase 6
 The official Phase 6 plan (in phase_6.md) wires TrackLimitsMonitor, PenaltyEnforcer, and WeatherSystem all onto one shared event queue, and hands that same queue to the Dashboard for its event feed. That reproduces the exact self-consumption bug we found and fixed in Phase 4 — except now it would also silently swallow WEATHER_CHANGE events before the UI ever saw them. I sidestepped it here by reading each system's live query methods directly (weather.current(), penalty.penalty_state(id)) instead of draining a shared display queue — worth deciding deliberately, not accidentally, when we build the real dashboard.
+
+
+////////BENCHMARK
+
+Ran benchmark 1
+SPSC — 16M frames/sec
+Weak. A correct lock-free SPSC with a plain numeric struct hits 100–500M ops/sec on your machine. You're getting 16M because TelemetryFrame has a std::string driver_id — every push heap-allocates. A Citadel interviewer sees "16M" and thinks "that's just your allocator, not your queue." The design is right; the benchmark exposes it unfairly.
+
+MPSC — 13M events/sec
+Mediocre, same reason. Every push heap-allocates a new linked list node plus copies a std::string. This measures malloc speed, not your concurrency design.
+
+Thread Pool p99 — 427µs
+Bad number to put on a CV. HFT infrastructure targets sub-10µs task dispatch. 427µs looks slow. The caveat is that you're measuring burst mode (200K tasks fired instantly) — steady-state latency is far lower — but the number printed is the number they read.
+
+Leaderboard — 3M reads/sec
+Acceptable. You're copying 20 structs full of std::strings under a shared lock. 3M is honest for that workload. Not headline-worthy but defensible.
+
+E2E p50 — 125ns
+Good. A sub-200ns hot-path cross-thread hop is real and impressive. This is worth mentioning.
+
+E2E p99 — 39.7µs
+Weak. That's OS thread scheduling jitter, not your code. Still, "p99 of 40µs" on a CV bullet reads as a negative.
+
+The core problem
+The structs have std::string everywhere. That's fine for a simulation, but it makes every benchmark measure heap allocation speed instead of lock-free logic. The concurrency design is correct — the numbers just don't show it.
+
+Two fixes that would make the numbers genuinely impressive
+Fix 1 — Use fixed-size char arrays in the hot path
+
+In src/common/types.h, change driver_id in TelemetryFrame from:
+
+
+std::string driver_id {};
+to:
+
+
+char driver_id[4] {};   // "VER\0" — no heap allocation
+That alone would push SPSC from 16M → ~150M+ and E2E p99 from 40µs → sub-1µs.
+
+Fix 2 — Benchmark the thread pool in steady state, not burst
+
+Instead of firing 200K tasks instantly, submit batches of N at a time and wait for them to drain. That measures real dispatch latency (1–5µs) not queue congestion.
