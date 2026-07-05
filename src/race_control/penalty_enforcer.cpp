@@ -2,6 +2,8 @@
 #include "common/season_data.h"
 #include <algorithm>
 #include <chrono>
+#include <cstring>
+#include <string_view>
 #include <vector>
 
 PenaltyEnforcer::PenaltyEnforcer(MpscQueue<RaceControlEvent>& event_queue)
@@ -13,7 +15,7 @@ PenaltyEnforcer::PenaltyEnforcer(MpscQueue<RaceControlEvent>& event_queue)
     for (auto& t : extra_pit_time_) t.store(0, std::memory_order_relaxed);
 }
 
-int PenaltyEnforcer::driver_index(const std::string& id) const {
+int PenaltyEnforcer::driver_index(std::string_view id) const {
     for (int i = 0; i < static_cast<int>(DRIVERS.size()); ++i) {
         if (DRIVERS[i].id == id) return i;
     }
@@ -55,9 +57,9 @@ void PenaltyEnforcer::process_events() {
                 // We won. Push a PENALTY_ISSUED event.
                 RaceControlEvent pen;
                 pen.type      = RaceControlEvent::Type::PENALTY_ISSUED;
-                pen.driver_id = e.driver_id;
+                std::memcpy(pen.driver_id, e.driver_id, 4);
                 pen.lap       = e.lap;
-                pen.message   = e.driver_id + " - 5 second penalty (track limits)";
+                pen.message   = std::string(e.driver_id) + " - 5 second penalty (track limits)";
                 pen.timestamp = std::chrono::steady_clock::now();
                 events_.push(std::move(pen));
 

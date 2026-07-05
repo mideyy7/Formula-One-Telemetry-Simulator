@@ -6,7 +6,7 @@
 
 // Telemetry
 struct TelemetryFrame {
-    std::string driver_id {};
+    char driver_id[4] {};   // "VER\0" — fixed size avoids heap alloc on hot path
     int lap {0};
     int sector {1};  // 1 or 2 or 3
     float speed_kph {0.0f};
@@ -75,7 +75,7 @@ struct RaceControlEvent {
     };
 
     Type type;
-    std::string driver_id;
+    char driver_id[4] {};   // "VER\0" — fixed size avoids heap alloc on hot path
     int lap {0};
     std::string message {};
     std::chrono::steady_clock::time_point timestamp {std::chrono::steady_clock::now()};

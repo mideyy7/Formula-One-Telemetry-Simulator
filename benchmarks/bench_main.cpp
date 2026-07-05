@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <algorithm>
 #include <vector>
 #include <thread>
@@ -34,7 +35,7 @@ static double bench_spsc() {
     std::atomic<bool>     running{true};
 
     TelemetryFrame frame;
-    frame.driver_id = "VER";
+    std::memcpy(frame.driver_id, "VER", 4);
     frame.speed_kph = 320.0f;
     frame.fuel_kg   = 95.0f;
 
@@ -70,7 +71,7 @@ static double bench_mpsc(int num_producers) {
     auto producer_fn = [&] {
         RaceControlEvent ev;
         ev.type      = RaceControlEvent::Type::TRACK_LIMITS;
-        ev.driver_id = "NOR";
+        std::memcpy(ev.driver_id, "NOR", 4);
         ev.lap       = 5;
         const auto until = Clock::now() + std::chrono::seconds(2);
         while (Clock::now() < until) q.push(ev);

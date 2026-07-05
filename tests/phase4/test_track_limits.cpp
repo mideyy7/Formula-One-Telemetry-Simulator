@@ -48,7 +48,7 @@ TEST(TrackLimitsTest, EventHasCorrectFields) {
     RaceControlEvent ev;
     if (q.pop(ev)) {
         EXPECT_EQ(ev.type, RaceControlEvent::Type::TRACK_LIMITS);
-        EXPECT_EQ(ev.driver_id, "VER");
+        EXPECT_STREQ(ev.driver_id, "VER");
         EXPECT_EQ(ev.lap, 5);
         EXPECT_FALSE(ev.message.empty());
     }

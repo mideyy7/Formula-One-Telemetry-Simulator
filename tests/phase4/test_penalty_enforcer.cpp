@@ -2,6 +2,8 @@
 #include "race_control/penalty_enforcer.h"
 #include <thread>
 #include <atomic>
+#include <cstring>
+#include <string_view>
 #include <vector>
 #include <chrono>
 
@@ -9,7 +11,7 @@ static void push_track_limits(MpscQueue<RaceControlEvent>& q,
                                const std::string& id, int lap) {
     RaceControlEvent ev;
     ev.type      = RaceControlEvent::Type::TRACK_LIMITS;
-    ev.driver_id = id;
+    std::memcpy(ev.driver_id, id.data(), 3);
     ev.lap       = lap;
     ev.timestamp = std::chrono::steady_clock::now();
     q.push(std::move(ev));
@@ -65,7 +67,7 @@ TEST(PenaltyEnforcerTest, ConcurrentThirdWarningExactlyOnePenalty) {
     RaceControlEvent ev;
     while (q.pop(ev)) {
         if (ev.type == RaceControlEvent::Type::PENALTY_ISSUED &&
-            ev.driver_id == "VER") {
+            std::string_view{ev.driver_id} == "VER") {
             ++penalty_count;
         }
     }

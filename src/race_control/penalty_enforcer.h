@@ -5,6 +5,7 @@
 #include <array>
 #include <atomic>
 #include <string>
+#include <string_view>
 
 // PenaltyEnforcer consumes TRACK_LIMITS events and manages per-driver
 // penalty state via atomic compare-and-exchange (CAS).
@@ -45,7 +46,7 @@ public:
     int warning_count(const std::string& driver_id) const;
 
 private:
-    int driver_index(const std::string& id) const;
+    int driver_index(std::string_view id) const;
 
     MpscQueue<RaceControlEvent>& events_;
 

@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <numeric>
 #include <chrono>
+#include <cstring>
 
 // ─── Constructor ─────────────────────────────────────────────────────────────
 
@@ -22,7 +23,7 @@ TelemetryGenerator::TelemetryGenerator(
         // P1 starts at the front; each car is 0.010 km behind the previous.
         s.distance_in_lap = static_cast<float>(DRIVERS.size() - i - 1) * 0.010f;
 
-        s.latest_frame.driver_id = DRIVERS[i].id;
+        std::memcpy(s.latest_frame.driver_id, DRIVERS[i].id.data(), 3);
         s.latest_frame.lap       = 1;
         s.latest_frame.fuel_kg   = 100.0f;
         s.lap_start              = std::chrono::steady_clock::now();

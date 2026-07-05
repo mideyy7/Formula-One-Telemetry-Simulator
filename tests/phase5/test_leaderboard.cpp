@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "common/leaderboard.h"
 #include "common/season_data.h"
+#include <cstring>
 #include <thread>
 #include <atomic>
 #include <vector>
@@ -13,7 +14,7 @@ static std::vector<DriverState> make_standings(int n = 20) {
         s.profile  = DRIVERS[i];
         s.car      = CARS[i / 2];
         s.position = i + 1;
-        s.latest_frame.driver_id = DRIVERS[i].id;
+        std::memcpy(s.latest_frame.driver_id, DRIVERS[i].id.data(), 3);
         v.push_back(s);
     }
     return v;
