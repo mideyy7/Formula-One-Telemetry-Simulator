@@ -51,7 +51,7 @@ struct TrackProfile {
 
 enum class PenaltyState {
     NONE,
-    PENDINF,
+    PENDING,
     SERVING,
     SERVED
 };
