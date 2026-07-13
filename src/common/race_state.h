@@ -114,11 +114,6 @@ struct RaceState {
     }
 };
 
-// Global singleton — declared here. Not yet defined/wired into main.cpp;
-// see lesson5.md for why that wiring is deliberately deferred, same as
-// Phase 3/4's not-yet-integrated components. A production translation unit
-// that wants this must provide exactly one definition:
-//   RaceState g_race_state;
 // `extern` here just tells the compiler "this exists somewhere, don't
 // allocate storage for it in every file that includes this header."
 extern RaceState g_race_state;
