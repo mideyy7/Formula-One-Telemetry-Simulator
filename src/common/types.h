@@ -99,4 +99,8 @@ struct DriverState {
     int pit_timer_ticks {0};
     bool has_completed_pit {false};
     std::chrono::steady_clock::time_point lap_start {std::chrono::steady_clock::now()};
+
+    // Phase S: pit-lane semaphore + strategy analyzer wiring
+    bool wants_to_pit {false}; // crossed the pit threshold, waiting for a PitLane slot
+    int  planned_pit_lap {0};  // 0 = no plan; StrategyAnalyzer output otherwise
 };

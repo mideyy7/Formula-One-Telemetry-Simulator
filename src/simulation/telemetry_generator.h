@@ -3,8 +3,13 @@
 #include "common/types.h"
 #include "common/season_data.h"
 #include "concurrency/spsc_queue.h"
+#include "simulation/lap_barrier.h"
+#include "simulation/pit_lane.h"
+#include "simulation/race_director.h"
+#include <array>
+#include <atomic>
 #include <thread>
-#include <stop_token>
+#include <unordered_map>
 #include <vector>
 #include <random>
 #include <functional>
@@ -30,13 +35,24 @@ public:
         const TrackProfile& track = DEFAULT_TRACK
     );
 
-    // Register a callback invoked after every tick (runs on the producer thread).
+    // Register a callback invoked after every tick (runs on whichever thread
+    // the lap barrier's completion function executes on — see on_tick_complete()).
     void set_on_tick(OnTickCallback cb) { on_tick_ = std::move(cb); }
 
-    // Start the producer thread.
+    // Optional: if set, the generator's pacer thread rendezvous with this
+    // gate before entering its tick loop. Lets the caller capture the race
+    // start timestamp at the instant ticking actually begins, not the
+    // instant start() was called.
+    void set_start_gate(RaceDirector* gate) { start_gate_ = gate; }
+
+    // Applies pre-computed pit-lap plans, keyed by driver id. Call after
+    // construction (states_ already seeded) but before start().
+    void apply_pit_plan(const std::unordered_map<std::string, int>& plans);
+
+    // Start the producer thread (plus the chunk-worker threads).
     void start();
 
-    // Ask the thread to stop, then block until it actually has (join).
+    // Ask all threads to stop, then block until they actually have (join).
     void stop();
 
     bool is_running() const { return thread_.joinable(); }
@@ -49,8 +65,10 @@ public:
     bool race_finished() const { return race_finished_; }
 
 private:
-    void run(std::stop_token st);  // thread entry point
-    void tick();
+    void run();  // pacer thread entry point
+    void chunk_worker(std::size_t worker_idx, std::size_t first, std::size_t last);
+    void process_chunk(std::size_t worker_idx, std::size_t first, std::size_t last);
+    void on_tick_complete(); // lap barrier completion — push, recalc, callback
     void update_positions_and_drs();
     void handle_pit(DriverState& state);
     bool should_pit(const DriverState& state) const;
@@ -62,9 +80,61 @@ private:
     std::jthread                     thread_;
     OnTickCallback                   on_tick_;
 
-    std::mt19937                    rng_{42};
-    std::normal_distribution<float> dist_{0.0f, 1.0f};
+    // One RNG + distribution per chunk worker — NOT shared. Before Phase S,
+    // a single rng_/dist_ pair was safe because one thread ticked all 20
+    // drivers sequentially. With 4 chunk-worker threads now calling
+    // dist_(rng_) concurrently, a shared engine is a real data race (caught
+    // by ThreadSanitizer: mersenne_twister_engine::operator() torn reads).
+    // Each worker gets its own, seeded distinctly so the 4 streams aren't
+    // identical.
+    std::array<std::mt19937, 4>                    rngs_{
+        std::mt19937{42}, std::mt19937{43}, std::mt19937{44}, std::mt19937{45}
+    };
+    std::array<std::normal_distribution<float>, 4> dists_{};
 
     int  race_lap_      {1};
     bool race_finished_ {false};
+
+    // Phase S: parallel tick + pit-lane + race-start wiring
+    LapBarrier tick_barrier_;                  // 4 chunk workers + pacer thread
+    PitLane    pit_lane_;
+    std::array<std::jthread, 4> chunk_workers_;
+    RaceDirector* start_gate_ {nullptr};
+
+    // Independent, manually-verified happens-before edge for states_ itself.
+    // Apple's experimental libc++ std::barrier does not reliably give
+    // ThreadSanitizer a visible happens-before between an arriving thread's
+    // pre-arrival writes and the completion function's reads of them — a
+    // minimal repro (N threads writing disjoint array slots, one completion
+    // function summing all of them) reproduces the same race with no
+    // project code involved. tick_barrier_ is still used for pacing/
+    // counting ("wait until all 5 have arrived"), but the actual data
+    // handoff from chunk workers to on_tick_complete() goes through this
+    // release/acquire counter instead, which TSan verifies unambiguously.
+    std::atomic<int> workers_done_ {0};
+
+    // External stop request, written by stop() (possibly mid-phase, from a
+    // thread not participating in the barrier at all).
+    std::atomic<bool> shutdown_requested_ {false};
+
+    // The actual "stop after this phase" decision, written exactly once per
+    // phase — inside on_tick_complete() — and read (as a plain, non-atomic
+    // bool) by all 5 threads right after they resume from
+    // tick_barrier_.arrive_and_wait(). This indirection matters: reading
+    // shutdown_requested_ directly on each of the 5 threads is NOT enough,
+    // even with correct release/acquire pairing. Release/acquire only
+    // guarantees ordering between a store and the specific load that reads
+    // it — it does NOT guarantee 5 independent threads, resuming at
+    // slightly different real times, all observe the same value of a store
+    // that races with their reads. If stop() lands its write in the window
+    // while the 5 threads are resuming, some could see true and others
+    // still see false — the ones that see false loop back into another
+    // phase, while the ones that saw true have already exited, permanently
+    // deadlocking the barrier on the phase that will now never collect all
+    // 5 arrivals. on_tick_complete() runs exactly once per phase and is
+    // guaranteed (by std::barrier's own synchronization) to happen before
+    // ANY of the 5 threads resume for that phase, so a plain write there is
+    // guaranteed visible, identically, to whichever thread reads it next —
+    // no race is possible.
+    bool phase_should_stop_ {false};
 };

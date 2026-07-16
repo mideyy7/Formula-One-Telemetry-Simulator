@@ -43,5 +43,9 @@ add_phase_tests(phase5
     phase5/test_race_state.cpp
 )
 
+add_phase_tests(phase_s
+    phase_s/test_integration.cpp
+)
+
 # Uncomment each block as you complete the phase:
 # add_phase_tests(phase6 phase6/test_dashboard_integration.cpp)

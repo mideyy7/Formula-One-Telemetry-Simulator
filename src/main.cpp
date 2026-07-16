@@ -3,10 +3,13 @@
 #include "common/race_state.h"
 #include "concurrency/spsc_queue.h"
 #include "concurrency/mpsc_queue.h"
+#include "concurrency/thread_pool.h"
 #include "simulation/telemetry_generator.h"
+#include "simulation/race_director.h"
 #include "race_control/track_limits.h"
 #include "race_control/penalty_enforcer.h"
 #include "race_control/weather.h"
+#include "strategy/strategy_analyzer.h"
 
 #include <iostream>
 #include <iomanip>
@@ -15,6 +18,7 @@
 #include <thread>
 #include <chrono>
 #include <algorithm>
+#include <unordered_map>
 
 // Small helpers to print enums as readable text.
 static const char* weather_name(WeatherState w) {
@@ -59,6 +63,28 @@ int main() {
     PenaltyEnforcer     penalty{race_control_queue};
     WeatherSystem       weather{race_control_queue};
 
+    // ── Phase S: pre-race strategy planning ────────────────────────────────
+    // Runs once, before the generator starts ticking: for each driver, submit
+    // 10 candidate-pit-lap simulations to the thread pool and keep the one
+    // with the lowest estimated race time. The result overrides the flat
+    // tire-wear threshold that TelemetryGenerator::should_pit() otherwise uses.
+    ThreadPool       strategy_pool{4};
+    StrategyAnalyzer strategy{strategy_pool};
+
+    std::unordered_map<std::string, int> pit_plans;
+    for (const auto& driver : generator.standings()) {
+        auto result = strategy.analyze(driver, DEFAULT_TRACK, TOTAL_LAPS);
+        pit_plans[driver.profile.id] = result.pit_lap;
+    }
+    generator.apply_pit_plan(pit_plans);
+
+    // ── Phase S: race start latch ──────────────────────────────────────────
+    // One-shot rendezvous between this thread and the generator's pacer
+    // thread, so race_start_time (below) is captured at the instant ticking
+    // actually begins rather than the instant start() was merely called.
+    RaceDirector race_start{2};
+    generator.set_start_gate(&race_start);
+
     // Every tick (50Hz, on the generator's own background thread): sort the
     // standings by position, publish them to the leaderboard, update the
     // shared lap counter, and run the race-control checks for this tick.
@@ -90,11 +116,12 @@ int main() {
         weather.update(lap);
     });
 
-    std::cout << "RaceCondition-Z -- live console test (Phases 1-5)\n";
+    std::cout << "RaceCondition-Z -- live console test (Phases 1-5, S)\n";
     std::cout << std::string(78, '=') << "\n";
 
     race_state.start_race();
     generator.start();
+    race_start.arrive_and_wait(); // blocks until the generator's pacer thread has also arrived
 
     // Main thread: every half second, read the shared state (through the
     // exact same locks/atomics the phase3/4/5 tests exercised) and print a

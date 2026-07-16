@@ -9,7 +9,8 @@
 TelemetryGenerator::TelemetryGenerator(
     SpscQueue<TelemetryFrame, 2048>& queue,
     const TrackProfile& track)
-    : queue_(queue), track_(track)
+    : queue_(queue), track_(track),
+      tick_barrier_{5, [this] { on_tick_complete(); }}
 {
     states_.reserve(DRIVERS.size());
 
@@ -35,39 +36,102 @@ TelemetryGenerator::TelemetryGenerator(
 // ─── Thread control ──────────────────────────────────────────────────────────
 
 void TelemetryGenerator::start() {
-    // The lambda takes a std::stop_token — jthread notices this and passes
-    // one in automatically when the thread starts.
-    thread_ = std::jthread([this](std::stop_token st) { run(st); });
+    // jthread here is used purely for RAII auto-join — shutdown is
+    // coordinated via shutdown_requested_ (see its declaration), not via
+    // std::stop_token, so the lambdas take no stop_token parameter.
+    thread_ = std::jthread([this] { run(); });
+
+    // 4 workers x 5 drivers = 20. Not derived generically from states_.size()
+    // on purpose — it keeps the barrier count (5 = chunk_workers_.size() + 1
+    // pacer thread) obviously matched to chunk_workers_.size() at a glance.
+    const std::size_t chunk = states_.size() / chunk_workers_.size();
+    for (std::size_t i = 0; i < chunk_workers_.size(); ++i) {
+        const std::size_t first = i * chunk;
+        const std::size_t last  = (i + 1 == chunk_workers_.size())
+                                 ? states_.size() : first + chunk;
+        chunk_workers_[i] = std::jthread(
+            [this, i, first, last] { chunk_worker(i, first, last); });
+    }
 }
 
 void TelemetryGenerator::stop() {
-    thread_.request_stop();     // flips the stop_token's flag
-    if (thread_.joinable()) thread_.join(); // wait for run() to actually exit
+    // Just signals intent. The actual "stop after this phase" agreement
+    // between all 5 threads happens in on_tick_complete() via
+    // phase_should_stop_ — see that field's declaration for why this
+    // flag alone isn't safe to read directly from 5 independent threads.
+    shutdown_requested_.store(true, std::memory_order_relaxed);
+
+    if (thread_.joinable()) thread_.join();
+    for (auto& w : chunk_workers_) if (w.joinable()) w.join();
+}
+
+void TelemetryGenerator::apply_pit_plan(const std::unordered_map<std::string, int>& plans) {
+    for (auto& state : states_) {
+        auto it = plans.find(state.profile.id);
+        if (it != plans.end()) state.planned_pit_lap = it->second;
+    }
 }
 
 std::vector<DriverState> TelemetryGenerator::standings() const {
     return states_; // returns a copy — safe to call from any thread
 }
 
-// ─── Main thread loop ────────────────────────────────────────────────────────
+// ─── Pacer thread loop ───────────────────────────────────────────────────────
 
-void TelemetryGenerator::run(std::stop_token st) {
-    while (!st.stop_requested() && !race_finished_) {
-        tick();
+void TelemetryGenerator::run() {
+    if (start_gate_) start_gate_->arrive_and_wait();
+
+    while (true) {
+        // Waits for all 4 chunk workers to finish this tick's physics, then
+        // runs on_tick_complete() (via the barrier's completion function)
+        // exactly once before releasing everyone into the next phase.
+        tick_barrier_.arrive_and_wait();
+        if (phase_should_stop_) break;
         std::this_thread::sleep_for(std::chrono::milliseconds(20)); // 50Hz
     }
 }
 
-// ─── Per-tick simulation ─────────────────────────────────────────────────────
+// ─── Chunk worker loop ───────────────────────────────────────────────────────
 
-void TelemetryGenerator::tick() {
-    for (auto& state : states_) {
+void TelemetryGenerator::chunk_worker(std::size_t worker_idx, std::size_t first, std::size_t last) {
+    while (true) {
+        process_chunk(worker_idx, first, last);
+
+        // Release-publishes this worker's writes to its slice of states_.
+        // on_tick_complete() pairs this with an acquire-load before it
+        // touches states_ at all — see workers_done_'s declaration.
+        workers_done_.fetch_add(1, std::memory_order_release);
+
+        tick_barrier_.arrive_and_wait();
+        if (phase_should_stop_) break;
+    }
+}
+
+// ─── Per-tick simulation (runs on 4 chunk-worker threads, disjoint ranges) ──
+
+void TelemetryGenerator::process_chunk(std::size_t worker_idx, std::size_t first, std::size_t last) {
+    for (std::size_t i = first; i < last; ++i) {
+        auto& state = states_[i];
         auto& frame = state.latest_frame;
+
+        // ── Pit lane gate ─────────────────────────────────────────────────────
+        // A driver that crossed the pit threshold doesn't enter until a
+        // PitLane slot is free — try_enter() is non-blocking so a busy pit
+        // lane just means "stay out, retry next tick" instead of stalling
+        // this thread's whole chunk.
+        if (state.wants_to_pit && !state.in_pit) {
+            if (pit_lane_.try_enter(std::chrono::milliseconds(0))) {
+                state.in_pit           = true;
+                state.wants_to_pit     = false;
+                state.pit_timer_ticks  = PIT_STOP_TICKS;
+                state.has_completed_pit = true;
+                frame.in_pit            = true;
+            }
+        }
 
         // ── Pit stop in progress ──────────────────────────────────────────────
         if (state.in_pit) {
             handle_pit(state);
-            queue_.push(frame);
             continue;
         }
 
@@ -78,7 +142,7 @@ void TelemetryGenerator::tick() {
         //   random var: models driver variation lap-to-lap
         float fuel_factor = 1.0f - (frame.fuel_kg / 100.0f) * 0.08f;
         float tire_factor = 1.0f - frame.tire_wear * 0.25f;
-        float variation   = dist_(rng_) * (1.0f - state.profile.consistency) * 8.0f;
+        float variation   = dists_[worker_idx](rngs_[worker_idx]) * (1.0f - state.profile.consistency) * 8.0f;
 
         frame.speed_kph = max_speed(state.car) * fuel_factor * tire_factor
                         + variation
@@ -125,33 +189,89 @@ void TelemetryGenerator::tick() {
                 state.best_lap_ms = lap_ms;
             }
 
-            // Pit decision
+            // Pit decision — this only raises the flag; actual entry is
+            // gated by the PitLane semaphore above.
             if (should_pit(state)) {
-                state.in_pit           = true;
-                state.pit_timer_ticks  = PIT_STOP_TICKS;
-                state.has_completed_pit = true;
-                frame.in_pit            = true;
+                state.wants_to_pit = true;
             }
 
-            // Update global race lap counter
-            if (frame.lap > race_lap_) {
-                race_lap_ = frame.lap;
-            }
-            if (frame.lap > TOTAL_LAPS && state.position == 1) {
-                race_finished_ = true;
-            }
+            // race_lap_/race_finished_ are NOT updated here on purpose: two
+            // different chunk workers could both complete a lap in the same
+            // tick, and both writing the same shared ints with no
+            // synchronization would be a data race (independent of the
+            // barrier/workers_done_ discussion above — this one is a plain
+            // concurrent read-modify-write within a single phase). They're
+            // computed once, serialized, in on_tick_complete() instead.
         }
+    }
+}
 
-        // ── Push frame to consumer ────────────────────────────────────────────
-        // If the queue is full the consumer is slow; drop the frame rather
-        // than block the whole simulation on one lagging reader.
-        queue_.push(frame);
+// ─── Lap barrier completion (guaranteed to run exactly once per tick) ───────
+//
+// This is the ONLY place that calls queue_.push(). SpscQueue is single-
+// producer: two concurrent push() calls would race on tail_ even if they
+// touched unrelated payloads. std::barrier's completion function is
+// guaranteed to run once per phase, never concurrently with itself, so
+// serializing all pushes here preserves the "single producer" contract even
+// though the physics above just ran across 4 different threads.
+
+void TelemetryGenerator::on_tick_complete() {
+    // Acquire-gate: the actual happens-before edge for states_ that this
+    // whole function depends on. Pairs with each chunk worker's
+    // workers_done_.fetch_add(release) — NOT with tick_barrier_'s own
+    // completion-function guarantee, which a minimal repro showed
+    // ThreadSanitizer cannot verify on this platform (see workers_done_'s
+    // declaration). By the time tick_barrier_ has collected all 5 arrivals
+    // to even invoke this function, all 4 workers have already done their
+    // fetch_add, so in practice this loop reads 4 on the first try — but
+    // it's the acquire load itself, not the loop, that does the work.
+    while (workers_done_.load(std::memory_order_acquire)
+           != static_cast<int>(chunk_workers_.size())) {
+        // spin — see comment above for why this is expected not to.
     }
 
-    // After all cars are updated, recalculate positions and DRS.
     update_positions_and_drs();
 
+    // race_lap_/race_finished_ computed once, here, serialized, instead of
+    // inside process_chunk() — see the comment there for why letting
+    // multiple chunk workers write these shared scalars directly would
+    // itself be a data race, independent of the barrier discussion above.
+    for (const auto& state : states_) {
+        if (state.latest_frame.lap > race_lap_) race_lap_ = state.latest_frame.lap;
+    }
+    for (const auto& state : states_) {
+        if (state.position == 1 && state.latest_frame.lap > TOTAL_LAPS) {
+            race_finished_ = true;
+        }
+    }
+
+    for (auto& state : states_) {
+        // If the queue is full the consumer is slow; drop the frame rather
+        // than block the whole simulation on one lagging reader.
+        queue_.push(state.latest_frame);
+    }
+
     if (on_tick_) on_tick_(states_);
+
+    if (race_finished_) {
+        shutdown_requested_.store(true, std::memory_order_relaxed);
+    }
+
+    // The single, race-free "stop after this phase" decision — see
+    // phase_should_stop_'s declaration for why this indirection through the
+    // completion function (rather than each of the 5 threads independently
+    // reading shutdown_requested_) is required for correctness.
+    phase_should_stop_ = shutdown_requested_.load(std::memory_order_relaxed);
+
+    // Reset for the next phase. Safe without extra synchronization: every
+    // chunk worker is still blocked inside tick_barrier_.arrive_and_wait()
+    // until this function returns (the phase-counting guarantee, which is
+    // not in question here), so none of them can call fetch_add() again
+    // until after this store has happened. workers_done_ being atomic also
+    // means the store/fetch_add sequence on the counter itself is always
+    // coherently ordered regardless of memory_order — that guarantee is
+    // unconditional for a single atomic object.
+    workers_done_.store(0, std::memory_order_relaxed);
 }
 
 // ─── Pit stop handling ────────────────────────────────────────────────────────
@@ -170,6 +290,7 @@ void TelemetryGenerator::handle_pit(DriverState& state) {
         frame.tire_wear = 0.02f;  // fresh tires (slight installation wear)
         frame.fuel_kg   = 100.0f; // refueled to max
         state.pit_stops++;
+        pit_lane_.exit(); // free the slot for the next queued driver
     }
 }
 
@@ -178,6 +299,13 @@ void TelemetryGenerator::handle_pit(DriverState& state) {
 bool TelemetryGenerator::should_pit(const DriverState& state) const {
     if (state.has_completed_pit) return false; // one stop only for now
     if (state.latest_frame.lap < 5) return false; // no early pits
+
+    // A StrategyAnalyzer plan (if applied) overrides the flat wear
+    // threshold — it already accounts for tire degradation and fuel burn
+    // across the whole race, not just the current tick.
+    if (state.planned_pit_lap > 0) {
+        return state.latest_frame.lap >= state.planned_pit_lap;
+    }
 
     // Aggressive drivers pit later (higher wear threshold).
     float threshold = 0.60f + state.profile.tire_mgmt * 0.25f;
