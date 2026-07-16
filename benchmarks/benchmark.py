@@ -55,7 +55,7 @@ def run_benchmark() -> dict:
     if not os.path.exists(BENCH_BIN):
         sys.exit(f"Binary not found: {BENCH_BIN}\nRun without --run to build first.")
 
-    print("── Running benchmarks (~15 s) " + "─" * 36)
+    print("── Running benchmarks (~20 s) " + "─" * 36)
     print(f"  $ {BENCH_BIN}\n")
 
     result = subprocess.run(
@@ -89,6 +89,9 @@ def fmt_mops(mops: float) -> str:
         return f"{mops / 1_000:.2f}B ops/sec"
     return f"{mops:.2f}M ops/sec"
 
+def fmt_x(factor: float) -> str:
+    return f"{factor:.1f}x"
+
 
 # ── Results display ────────────────────────────────────────────────────────
 
@@ -101,11 +104,21 @@ def print_results(d: dict):
     print(f"  Hardware: {d['hardware_concurrency']} logical cores")
     print(sep)
 
+    spsc_speedup_mutex = d['spsc_throughput_mops'] / d['spsc_mutex_baseline_mops']
+    spsc_speedup_pad   = d['spsc_throughput_mops'] / d['spsc_no_padding_throughput_mops']
     print(f"\n  1. Lock-free SPSC Queue  (1 producer → 1 consumer, TelemetryFrame)")
-    print(f"     Throughput : {fmt_mops(d['spsc_throughput_mops'])}")
+    print(f"     Throughput              : {fmt_mops(d['spsc_throughput_mops'])}")
+    print(f"     vs std::mutex+deque     : {fmt_mops(d['spsc_mutex_baseline_mops'])}  ({fmt_x(spsc_speedup_mutex)} faster)")
+    print(f"     vs no cache-line padding: {fmt_mops(d['spsc_no_padding_throughput_mops'])}  ({fmt_x(spsc_speedup_pad)} faster with padding)")
+    print(f"     push() latency  p50 {fmt_ns(d['spsc_push_p50_ns'])} / p95 {fmt_ns(d['spsc_push_p95_ns'])} "
+          f"/ p99 {fmt_ns(d['spsc_push_p99_ns'])} / p99.9 {fmt_ns(d['spsc_push_p999_ns'])}")
 
+    mpsc_speedup_mutex = d['mpsc_throughput_mops'] / d['mpsc_mutex_baseline_mops']
     print(f"\n  2. Lock-free MPSC Queue  ({d['mpsc_producers']} producers → 1 consumer, RaceControlEvent)")
-    print(f"     Throughput : {fmt_mops(d['mpsc_throughput_mops'])}")
+    print(f"     Throughput              : {fmt_mops(d['mpsc_throughput_mops'])}")
+    print(f"     vs std::mutex+deque     : {fmt_mops(d['mpsc_mutex_baseline_mops'])}  ({fmt_x(mpsc_speedup_mutex)} faster)")
+    print(f"     push() latency  p50 {fmt_ns(d['mpsc_push_p50_ns'])} / p95 {fmt_ns(d['mpsc_push_p95_ns'])} "
+          f"/ p99 {fmt_ns(d['mpsc_push_p99_ns'])} / p99.9 {fmt_ns(d['mpsc_push_p999_ns'])}")
 
     print(f"\n  3. Thread Pool  ({d['thread_pool_workers']} workers, 200K tasks, submit→start latency)")
     print(f"     p50   : {fmt_ns(d['thread_pool_p50_ns'])}")
@@ -114,7 +127,10 @@ def print_results(d: dict):
     print(f"     p99.9 : {fmt_ns(d['thread_pool_p999_ns'])}")
 
     print(f"\n  4. Leaderboard SWMR  ({d['leaderboard_readers']} readers + 1 writer, 20-driver snapshot)")
-    print(f"     Read throughput : {fmt_mops(d['leaderboard_mreads_per_sec'])}")
+    print(f"     Read throughput  : {fmt_mops(d['leaderboard_mreads_per_sec'])}")
+    print(f"     Write latency (under concurrent read load):")
+    print(f"       p50 {fmt_ns(d['leaderboard_write_p50_ns'])} / p95 {fmt_ns(d['leaderboard_write_p95_ns'])} "
+          f"/ p99 {fmt_ns(d['leaderboard_write_p99_ns'])} / p99.9 {fmt_ns(d['leaderboard_write_p999_ns'])}")
 
     print(f"\n  5. End-to-End Pipeline  (SPSC push→pop latency, 100K samples)")
     print(f"     p50   : {fmt_ns(d['pipeline_e2e_p50_ns'])}")
@@ -123,6 +139,8 @@ def print_results(d: dict):
     print(f"     p99.9 : {fmt_ns(d['pipeline_e2e_p999_ns'])}")
 
     # ── CV bullets ──────────────────────────────────────────────────────────
+    # Every number here comes straight from this run's JSON -- no claim that
+    # isn't backed by a field the binary actually measured.
     spsc_mops = d["spsc_throughput_mops"]
     tp_p99    = fmt_ns(d["thread_pool_p99_ns"])
     lb_mops   = d["leaderboard_mreads_per_sec"]
@@ -139,33 +157,34 @@ def print_results(d: dict):
         (
             f"Engineered a lock-free SPSC ring buffer (acquire/release memory "
             f"ordering, cache-line-aligned heads) sustaining {spsc_mops:.0f}M "
-            f"frames/sec; zero data races across 10M iterations under "
-            f"ThreadSanitizer."
+            f"frames/sec — {spsc_speedup_mutex:.1f}x a std::mutex+deque baseline "
+            f"measured on the same workload, and {spsc_speedup_pad:.1f}x faster "
+            f"than the same queue with cache-line padding removed, confirming "
+            f"the false-sharing fix actually matters."
         ),
         (
             f"Implemented a lock-free MPSC event bus (Vyukov linked-list design, "
-            f"ABA-safe) reaching {mpsc_mops:.0f}M events/sec across {mpsc_n} "
-            f"concurrent producers — models the race-control fanout pattern "
-            f"seen in market-data pipelines."
+            f"exchange-based enqueue) reaching {mpsc_mops:.0f}M events/sec across "
+            f"{mpsc_n} concurrent producers — {mpsc_speedup_mutex:.1f}x a "
+            f"std::mutex+deque baseline under the same contention."
         ),
         (
             f"Built a thread pool ({workers} workers, std::packaged_task + "
             f"std::future) achieving p99 task-dispatch latency of {tp_p99} "
-            f"over 200K submissions; parallelised 10-scenario pit-stop "
-            f"optimiser, cutting decision time vs sequential by "
-            f"{workers}×."
+            f"over 200K submissions."
         ),
         (
             f"Protected shared leaderboard with std::shared_mutex (SWMR pattern), "
             f"sustaining {lb_mops:.0f}M snapshot reads/sec across {readers} "
-            f"concurrent readers under live write pressure — directly analogous "
-            f"to a multi-reader order-book snapshot."
+            f"concurrent readers while separately measuring the writer's own "
+            f"update() latency under that same read pressure, not just read "
+            f"throughput in isolation."
         ),
         (
             f"Measured end-to-end pipeline latency (producer push → consumer pop) "
-            f"at {e2e_p99} p99 across 100K timestamped frames; coordinated 6 "
-            f"concurrent subsystems (telemetry, race control, strategy, weather, "
-            f"leaderboard, state machine) with no shared locks on the hot path."
+            f"at {e2e_p99} p99 across 100K timestamped frames, and separately "
+            f"isolated push()-call latency from round-trip latency to distinguish "
+            f"queue-op cost from consumer scheduling delay."
         ),
     ]
 

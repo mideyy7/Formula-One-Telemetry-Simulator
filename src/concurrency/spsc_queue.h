@@ -16,7 +16,14 @@
 // never needs to read tail_. Cross-thread atomic traffic drops from
 // 2 per round-trip to near-zero.
 
-template<typename T, std::size_t Capacity>
+// Align: cache-line padding between the producer- and consumer-owned fields
+// below. Defaults to 64 (a real cache line on essentially every relevant
+// CPU) for all normal use. Exposed as a template parameter only so the
+// benchmark suite can instantiate an Align=1 (no padding) variant and
+// measure the false-sharing cost this padding is meant to eliminate,
+// rather than just asserting the padding matters — see
+// benchmarks/bench_main.cpp's alignment ablation.
+template<typename T, std::size_t Capacity, std::size_t Align = 64>
 class SpscQueue {
     static_assert(Capacity >= 2, "Capacity must be at least 2");
     static_assert((Capacity & (Capacity - 1)) == 0,
@@ -28,12 +35,12 @@ class SpscQueue {
     // Producer writes tail_ and reads head_cache_ (stale copy of consumer's head_).
     // Colocating them prevents the producer from touching the consumer's cache line
     // on the common path (queue not full).
-    alignas(64) std::atomic<std::size_t> tail_{0};
+    alignas(Align) std::atomic<std::size_t> tail_{0};
     std::size_t head_cache_{0};
 
     // ── Consumer-owned cache line ──────────────────────────────────────────
     // Consumer writes head_ and reads tail_cache_ (stale copy of producer's tail_).
-    alignas(64) std::atomic<std::size_t> head_{0};
+    alignas(Align) std::atomic<std::size_t> head_{0};
     std::size_t tail_cache_{0};
 
     std::array<T, Capacity> buffer_{};
