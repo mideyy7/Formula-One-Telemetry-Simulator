@@ -2,6 +2,7 @@
 add_library(rcz_lib STATIC
     concurrency/thread_pool.cpp
     simulation/telemetry_generator.cpp
+    simulation/lap_time_consumer.cpp
     race_control/track_limits.cpp
     race_control/penalty_enforcer.cpp
     race_control/weather.cpp

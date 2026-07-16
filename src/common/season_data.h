@@ -2,6 +2,7 @@
 
 #include "common/types.h"
 #include <array>
+#include <string_view>
 
 
 // 2025 F1 Driver Profiles
@@ -59,4 +60,13 @@ inline const CarProfile& car_for_driver(const DriverProfile&  d) {
         if (car.team == d.team) return car;
     }
     return CARS[9]; // fallback: Sauber (last place)
+}
+
+// helper to resolve a driver_id (e.g. "VER") to its index in DRIVERS (0-19).
+// Returns -1 if not found.
+inline int driver_index_of(std::string_view id) {
+    for (int i = 0; i < static_cast<int>(DRIVERS.size()); ++i) {
+        if (DRIVERS[i].id == id) return i;
+    }
+    return -1;
 }

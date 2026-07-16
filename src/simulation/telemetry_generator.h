@@ -3,6 +3,7 @@
 #include "common/types.h"
 #include "common/season_data.h"
 #include "concurrency/spsc_queue.h"
+#include <atomic>
 #include <thread>
 #include <stop_token>
 #include <vector>
@@ -41,12 +42,21 @@ public:
 
     bool is_running() const { return thread_.joinable(); }
 
-    // Returns a copy of the current standings — safe to call from any thread
-    // because it copies the vector rather than handing out a reference.
+    // NOT thread-safe despite returning a copy: states_ is mutated by the
+    // generator thread with no synchronization, so a concurrent copy here
+    // would race with those writes. Currently unused; would need a lock or
+    // an atomic-swap handoff (like Leaderboard's shared_mutex) before any
+    // caller relies on it from another thread.
     std::vector<DriverState> standings() const;
 
-    int race_lap() const { return race_lap_; }
-    bool race_finished() const { return race_finished_; }
+    // race_lap: informational counter (like RaceState::current_lap) — relaxed
+    // is fine, no harm if a reader sees it one tick stale.
+    int race_lap() const { return race_lap_.load(std::memory_order_relaxed); }
+
+    // race_finished: gates the main thread's render loop exit — acquire/
+    // release so the reader is guaranteed to observe it promptly and in
+    // order with the write, not just eventually.
+    bool race_finished() const { return race_finished_.load(std::memory_order_acquire); }
 
 private:
     void run(std::stop_token st);  // thread entry point
@@ -65,6 +75,6 @@ private:
     std::mt19937                    rng_{42};
     std::normal_distribution<float> dist_{0.0f, 1.0f};
 
-    int  race_lap_      {1};
-    bool race_finished_ {false};
+    std::atomic<int>  race_lap_      {1};
+    std::atomic<bool> race_finished_ {false};
 };

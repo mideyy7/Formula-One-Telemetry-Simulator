@@ -14,9 +14,10 @@ import sys
 import os
 import argparse
 
-ROOT      = os.path.dirname(os.path.abspath(__file__))
-BUILD_DIR = os.path.join(ROOT, "build-bench")
-BENCH_BIN = os.path.join(BUILD_DIR, "benchmarks", "rcz_bench")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT       = os.path.dirname(SCRIPT_DIR)  # repo root — benchmarks/CMakeLists.txt is only valid via add_subdirectory() from here
+BUILD_DIR  = os.path.join(SCRIPT_DIR, "build-bench")
+BENCH_BIN  = os.path.join(BUILD_DIR, "benchmarks", "rcz_bench")
 
 W = 66  # display width
 

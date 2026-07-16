@@ -71,6 +71,10 @@ void TelemetryGenerator::tick() {
             continue;
         }
 
+        // frame is reused across ticks — clear the previous tick's lap-completion
+        // marker so it doesn't linger and get re-read as "lap just completed".
+        frame.lap_time_ms = 0.0f;
+
         // ── Speed calculation ─────────────────────────────────────────────────
         // Factors that reduce top speed:
         //   fuel load:  heavy fuel = slower by up to 8%
@@ -119,7 +123,8 @@ void TelemetryGenerator::tick() {
             auto now     = std::chrono::steady_clock::now();
             float lap_ms = std::chrono::duration<float, std::milli>(
                                now - state.lap_start).count();
-            state.lap_start = now;
+            state.lap_start   = now;
+            frame.lap_time_ms = lap_ms;
 
             if (state.best_lap_ms < 1.0f || lap_ms < state.best_lap_ms) {
                 state.best_lap_ms = lap_ms;
@@ -134,11 +139,11 @@ void TelemetryGenerator::tick() {
             }
 
             // Update global race lap counter
-            if (frame.lap > race_lap_) {
-                race_lap_ = frame.lap;
+            if (frame.lap > race_lap_.load(std::memory_order_relaxed)) {
+                race_lap_.store(frame.lap, std::memory_order_relaxed);
             }
             if (frame.lap > TOTAL_LAPS && state.position == 1) {
-                race_finished_ = true;
+                race_finished_.store(true, std::memory_order_release);
             }
         }
 
@@ -159,10 +164,13 @@ void TelemetryGenerator::tick() {
 void TelemetryGenerator::handle_pit(DriverState& state) {
     auto& frame = state.latest_frame;
     state.pit_timer_ticks--;
-    frame.in_pit    = true;
-    frame.speed_kph = 60.0f; // pit lane speed limit
-    frame.throttle  = 0.2f;
-    frame.brake     = 0.1f;
+    frame.in_pit      = true;
+    frame.speed_kph   = 60.0f; // pit lane speed limit
+    frame.throttle    = 0.2f;
+    frame.brake       = 0.1f;
+    // Clear the lap-completion marker so the tick that triggered pit entry
+    // doesn't get re-pushed with a stale lap_time_ms on every pit tick after it.
+    frame.lap_time_ms = 0.0f;
 
     if (state.pit_timer_ticks <= 0) {
         state.in_pit    = false;

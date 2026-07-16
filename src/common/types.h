@@ -17,6 +17,7 @@ struct TelemetryFrame {
     bool drs_active {false};
     bool in_pit {false};
     float gap_to_leader {0.0f};
+    float lap_time_ms {0.0f};  // set only on the tick a lap completes; 0 otherwise
 };
 
 // Profiles

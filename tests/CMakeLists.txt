@@ -28,6 +28,10 @@ add_test_suite(test_telemetry
     test_telemetry/test_telemetry_generator.cpp
 )
 
+add_test_suite(test_simulation
+    test_simulation/test_lap_time_consumer.cpp
+)
+
 add_test_suite(test_race_control
     test_race_control/test_track_limits.cpp
     test_race_control/test_penalty_enforcer.cpp
