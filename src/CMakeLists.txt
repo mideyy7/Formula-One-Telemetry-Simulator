@@ -5,7 +5,6 @@ add_library(rcz_lib STATIC
     race_control/track_limits.cpp
     race_control/penalty_enforcer.cpp
     race_control/weather.cpp
-    strategy/strategy_analyzer.cpp
 )
 
 target_include_directories(rcz_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

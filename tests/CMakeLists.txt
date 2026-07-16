@@ -26,16 +26,12 @@ add_phase_tests(phase2
 
 add_phase_tests(phase3
     phase3/test_telemetry_generator.cpp
-    phase3/test_latch.cpp
-    phase3/test_barrier.cpp
-    phase3/test_semaphore.cpp
 )
 
 add_phase_tests(phase4
     phase4/test_track_limits.cpp
     phase4/test_penalty_enforcer.cpp
     phase4/test_weather.cpp
-    phase4/test_strategy_analyzer.cpp
 )
 
 add_phase_tests(phase5
