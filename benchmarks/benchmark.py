@@ -92,6 +92,13 @@ def fmt_mops(mops: float) -> str:
 def fmt_x(factor: float) -> str:
     return f"{factor:.1f}x"
 
+def fmt_count(n: int) -> str:
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.0f}K"
+    return str(n)
+
 
 # ── Results display ────────────────────────────────────────────────────────
 
@@ -120,7 +127,8 @@ def print_results(d: dict):
     print(f"     push() latency  p50 {fmt_ns(d['mpsc_push_p50_ns'])} / p95 {fmt_ns(d['mpsc_push_p95_ns'])} "
           f"/ p99 {fmt_ns(d['mpsc_push_p99_ns'])} / p99.9 {fmt_ns(d['mpsc_push_p999_ns'])}")
 
-    print(f"\n  3. Thread Pool  ({d['thread_pool_workers']} workers, 200K tasks, submit→start latency)")
+    tp_total = fmt_count(d['thread_pool_total_submissions'])
+    print(f"\n  3. Thread Pool  ({d['thread_pool_workers']} workers, {tp_total} tasks, submit→start latency)")
     print(f"     p50   : {fmt_ns(d['thread_pool_p50_ns'])}")
     print(f"     p95   : {fmt_ns(d['thread_pool_p95_ns'])}")
     print(f"     p99   : {fmt_ns(d['thread_pool_p99_ns'])}")
@@ -171,7 +179,7 @@ def print_results(d: dict):
         (
             f"Built a thread pool ({workers} workers, std::packaged_task + "
             f"std::future) achieving p99 task-dispatch latency of {tp_p99} "
-            f"over 200K submissions."
+            f"over {tp_total} submissions."
         ),
         (
             f"Protected shared leaderboard with std::shared_mutex (SWMR pattern), "

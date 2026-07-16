@@ -313,9 +313,13 @@ static LatencyStats bench_mpsc_push_latency(int num_producers) {
 }
 
 // ── 3. Thread pool task-dispatch latency ───────────────────────────────────
-// Batch-drain: submit BATCH tasks, wait for all to complete, repeat.
-// Workers are warm between batches so we measure steady-state dispatch
-// latency — not the queueing delay from an instantaneous burst of 200K tasks.
+// Batch-drain: submit BATCH (= worker count) tasks, wait for all to
+// complete, repeat for THREAD_POOL_ROUNDS rounds. Workers are warm between
+// batches so we measure steady-state dispatch latency, not the queueing
+// delay from one instantaneous burst of BATCH*ROUNDS tasks. Total
+// submissions scales with hardware_concurrency() -- main() reports the
+// real number in the JSON output rather than a hardcoded guess.
+static constexpr int THREAD_POOL_ROUNDS = 10'000;
 
 static LatencyStats bench_thread_pool() {
     const int workers = static_cast<int>(std::thread::hardware_concurrency());
@@ -331,7 +335,7 @@ static LatencyStats bench_thread_pool() {
     }
 
     const int BATCH  = workers;      // one task per worker keeps them all busy
-    const int ROUNDS = 10'000;       // repeat this many times
+    const int ROUNDS = THREAD_POOL_ROUNDS;
     const int TOTAL  = BATCH * ROUNDS;
 
     std::vector<int64_t> latencies(TOTAL, 0);
@@ -489,7 +493,8 @@ int main() {
     const double mpsc_mutex = bench_mpsc_mutex_baseline(mpsc_n);
     const auto   mpsc_lat   = bench_mpsc_push_latency(mpsc_n);
 
-    const auto   tp = bench_thread_pool();
+    const auto   tp       = bench_thread_pool();
+    const int    tp_total = cores * THREAD_POOL_ROUNDS;
 
     const int    readers    = std::max(2, cores - 1);
     const double lb         = bench_leaderboard(readers);
@@ -515,6 +520,7 @@ int main() {
         "  \"mpsc_push_p99_ns\":  %.0f,\n"
         "  \"mpsc_push_p999_ns\": %.0f,\n"
         "  \"thread_pool_workers\": %d,\n"
+        "  \"thread_pool_total_submissions\": %d,\n"
         "  \"thread_pool_p50_ns\":  %.0f,\n"
         "  \"thread_pool_p95_ns\":  %.0f,\n"
         "  \"thread_pool_p99_ns\":  %.0f,\n"
@@ -539,6 +545,7 @@ int main() {
         mpsc_mutex,
         mpsc_lat.p50, mpsc_lat.p95, mpsc_lat.p99, mpsc_lat.p999,
         cores,
+        tp_total,
         tp.p50, tp.p95, tp.p99, tp.p999,
         readers, lb,
         lb_write.p50, lb_write.p95, lb_write.p99, lb_write.p999,
