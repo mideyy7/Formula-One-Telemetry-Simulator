@@ -6,7 +6,7 @@ It's a systems-programming exercise wearing a race simulator's clothes: the inte
 
 ## At a glance
 
-**C++23** · CMake + FetchContent (GoogleTest, FTXUI) · custom lock-free SPSC/MPSC queues · `std::shared_mutex` SWMR pattern · `ThreadPool` (`packaged_task`/`future`) · `std::jthread`/`stop_token` · 54 GoogleTest cases (20 concurrency-focused, clean under **ThreadSanitizer** including the live binary itself, not just the test suites) · SPSC ring buffer is **8.8x faster than a `std::mutex`+`std::deque` baseline measured on the same workload** — not just a throughput number in isolation.
+**C++23** · CMake + FetchContent (GoogleTest) · custom lock-free SPSC/MPSC queues · `std::shared_mutex` SWMR pattern · `ThreadPool` (`packaged_task`/`future`) · `std::jthread`/`stop_token` · 54 GoogleTest cases (20 concurrency-focused, clean under **ThreadSanitizer** including the live binary itself, not just the test suites) · SPSC ring buffer is **8.8x faster than a `std::mutex`+`std::deque` baseline measured on the same workload** — not just a throughput number in isolation.
 
 ## In action
 
@@ -76,8 +76,6 @@ Five real OS threads, each with cross-thread data flow:
 3. **`LapTimeConsumer` thread** — the SPSC queue's consumer. Drains `TelemetryFrame`s and, on any frame marking a completed lap, races to claim it via `RaceState::try_claim_fastest_lap` — a CAS retry loop also covered by `RaceStateTest.FastestLapCasExactlyOneWinner`.
 4. **Main thread** — reads `Leaderboard`, `WeatherSystem`, and `PenaltyEnforcer` state every 500ms while the race is running. `RaceState`'s fastest-lap holder is read separately, once, after that loop exits — it's part of the final summary printout, not the periodic snapshot.
 
-One thing still unused: **FTXUI** is fetched and linked (`ftxui::screen/dom/component`) but not `#include`d anywhere — the console output is plain `std::cout`. It's vendored for a planned interactive dashboard that would be the natural consumer of `Leaderboard`'s existing `shared_mutex` reads, not currently wired up.
-
 ## Benchmarks
 
 Measured with `python3 benchmarks/benchmark.py`, which builds `rcz_bench` in `-O3`/`NDEBUG` and runs it — the script is in the repo, so every number below is reproducible on your own machine (numbers will vary with core count and background load; see the note below the table).
@@ -113,7 +111,7 @@ Methodology notes:
 
 ## Build & run
 
-Requires CMake ≥ 3.20 and a C++23 compiler (tested with AppleClang 17 / Xcode 17). First configure fetches FTXUI and GoogleTest via `FetchContent`.
+Requires CMake ≥ 3.20 and a C++23 compiler (tested with AppleClang 17 / Xcode 17). First configure fetches GoogleTest via `FetchContent`.
 
 ```bash
 # Configure + build (Release)
@@ -142,7 +140,7 @@ cmake --build build-tsan --target test_concurrency test_simulation RaceCondition
 
 ## What I'd do next
 
-- Wire an FTXUI live dashboard as a second, real-time consumer of `Leaderboard`'s snapshots — the dependency is already vendored, just unused.
+- Wire a live terminal dashboard (e.g. FTXUI) as a second, real-time consumer of `Leaderboard`'s snapshots — a further-out plan, not yet started.
 - `should_pit()` supports exactly one stop per driver; multi-stop strategy branching is the obvious next simulation feature.
 - Add a fuzz/property test for the SPSC index math (`(tail + 1) & MASK` correctness under adversarial capacities) rather than relying solely on fixed-capacity unit tests.
 - `TelemetryGenerator::standings()` returns a copy but isn't actually thread-safe (the source vector is mutated without synchronization); it's currently unused, but worth either locking it properly or removing it before anyone relies on it.

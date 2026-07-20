@@ -10,12 +10,6 @@ add_library(rcz_lib STATIC
 
 target_include_directories(rcz_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(rcz_lib PUBLIC
-    ftxui::screen
-    ftxui::dom
-    ftxui::component
-)
-
 # Minimal executable — verifies the project compiles.
 # main.cpp will be populated in Step 3.
 add_executable(RaceCondition-z main.cpp)

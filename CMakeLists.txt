@@ -16,13 +16,6 @@ endif()
 
 include(FetchContent)
 
-# FIXUI - terminal UI Library
-FetchContent_Declare(ftxui
-    GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI
-    GIT_TAG v5.0.0
-)
-FetchContent_MakeAvailable(ftxui)
-
 # GoogleTest
 FetchContent_Declare(googleTest
     GIT_REPOSITORY https://github.com/google/googletest
