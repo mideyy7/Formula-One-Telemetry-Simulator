@@ -5,6 +5,8 @@
 #include <vector>
 #include <limits>
 #include <string>
+#include <thread>
+#include <stdexcept>
 
 // Leaderboard holds the sorted race standings.
 //
@@ -28,12 +30,28 @@
 // The `mutable` keyword: allows snapshot() to be `const` (logically
 // read-only) while still locking the mutex (which modifies internal
 // lock state). Without mutable, a const method cannot lock a mutex.
+//
+// Single-writer is enforced, not just documented: the first thread to call
+// update() claims writer_id_ for this instance's lifetime; any other thread
+// that calls update() gets a thrown std::logic_error instead of silently
+// corrupting standings_. This is a plain (non-atomic) member because it's
+// only ever touched while mutex_ is already held exclusively below — no
+// separate synchronization needed. It's a one-way claim: there's no
+// mechanism to hand writer ownership to a different thread later, which
+// matches how this class is actually used (one thread owns it for the
+// whole race).
 
 class Leaderboard {
 public:
     // Called by the simulation thread — takes exclusive lock.
     void update(std::vector<DriverState> sorted_standings) {
         std::unique_lock lock{mutex_};
+        auto tid = std::this_thread::get_id();
+        if (writer_id_ == std::thread::id{}) {
+            writer_id_ = tid; // first caller claims the writer slot
+        } else if (writer_id_ != tid) {
+            throw std::logic_error("Leaderboard::update() called from a second writer thread");
+        }
         standings_ = std::move(sorted_standings);
     }
 
@@ -77,4 +95,5 @@ public:
 private:
     std::vector<DriverState>  standings_;
     mutable std::shared_mutex mutex_;
+    std::thread::id           writer_id_{}; // guarded by mutex_; see update()
 };

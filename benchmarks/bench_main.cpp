@@ -367,18 +367,26 @@ static double bench_leaderboard(int num_readers) {
         seed[i].position   = i + 1;
         seed[i].profile.id = "D" + std::to_string(i);
     }
-    lb.update(seed);
 
     std::atomic<bool>     running{true};
+    std::atomic<bool>     ready{false};
     std::atomic<uint64_t> total_reads{0};
 
+    // Leaderboard::update() enforces single-writer, so the seed call has to
+    // happen on this same writer thread rather than on the calling thread
+    // before spawning it. Readers wait for `ready` so they never observe the
+    // board before it's seeded.
     std::thread writer([&] {
+        lb.update(seed);
+        ready.store(true, std::memory_order_release);
         std::vector<DriverState> data = seed;
         while (running.load(std::memory_order_relaxed)) {
             lb.update(data);
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     });
+
+    while (!ready.load(std::memory_order_acquire)) {}
 
     std::vector<std::thread> readers;
     readers.reserve(num_readers);
